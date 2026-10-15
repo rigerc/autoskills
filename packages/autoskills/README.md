@@ -76,7 +76,7 @@ Pi skills are linked into `.pi/skills`. The desk discovers both project skills a
 
 ## Supported Technologies
 
-`autoskills` detects **123 technologies** and **33 technology combos** from `package.json`, project manifests, Gradle files, and configuration files. The following table covers every technology in `SKILLS_MAP`, including Rails, Django, FastAPI, and pytest.
+`autoskills` detects **151 technologies** and **33 technology combos** from `package.json`, project manifests, Gradle files, and configuration files. The following table covers every technology in `SKILLS_MAP`, including Rails, Django, FastAPI, and pytest.
 
 | Category | Technologies |
 | --- | --- |
@@ -93,6 +93,7 @@ Pi skills are linked into `.pi/skills`. The desk discovers both project skills a
 | Authentication & payments | Clerk, Better Auth, Stripe |
 | AI SDKs & observability | Vercel AI SDK, ElevenLabs, Anthropic SDK, OpenAI SDK, LangChain, Model Context Protocol SDK, Hugging Face, Sentry |
 | Build tooling & media | Turborepo, Vite, Remotion |
+| Developer tooling | Vite+, Just, Task, GNU Make / Make, mise, direnv, pre-commit, Lefthook, Husky, lint-staged, Changesets, semantic-release, commitlint, Renovate, Dependabot, Nx, moonrepo, Prettier, tsup, tsdown, Rolldown, esbuild, webpack, Rspack, uv, Poetry, Ruff, Bazel |
 
 ### Expanded detection signals
 
@@ -127,6 +128,41 @@ Pi skills are linked into `.pi/skills`. The desk discovers both project skills a
 | Swift | `Package.swift` |
 | Elixir | `mix.exs` |
 | C++ | `CMakeLists.txt` |
+
+### Developer tooling detection signals
+
+| Tool | Detected from |
+| --- | --- |
+| Vite+ | `vite-plus` dependency or `vite.config.*` import from `vite-plus` (not any Vite config) |
+| Just | `justfile`, `Justfile`, `JUSTFILE`, `.justfile` |
+| Task | `Taskfile.yml` / `.yaml`, lowercase variants, and `.dist` variants |
+| GNU Make / Make | `Makefile`, `makefile`, `GNUmakefile`, `BSDmakefile` |
+| mise | `mise.toml`, `.mise.toml` and supported project-local mise config paths |
+| direnv | `.envrc` |
+| pre-commit | `.pre-commit-config.yaml` / `.yml`, Python `pre-commit` dependency |
+| Lefthook | `lefthook` dependency or Lefthook YAML, TOML, JSON, JSONC configs |
+| Husky | `husky` dependency or `.husky/` directory |
+| lint-staged | `lint-staged` dependency or `.lintstagedrc*` / `lint-staged.config.*` |
+| Changesets | `@changesets/cli` or `.changeset/config.json` |
+| semantic-release | `semantic-release`, `.releaserc*`, `release.config.*` |
+| commitlint | `@commitlint/*` CLI/config dependencies or commitlint config files |
+| Renovate | `renovate` or `renovate.json*`, `.renovaterc*`, `.github/renovate.json*` |
+| Dependabot | `.github/dependabot.yml` / `.yaml` |
+| Nx | `nx`, `@nx/*`, `@nrwl/*` or `nx.json` |
+| moonrepo | `@moonrepo/cli`, `.moon/workspace.*`, `moon.yml`, `moon.pkl` |
+| Prettier | `prettier`, `.prettierrc*`, `prettier.config.*` |
+| tsup | `tsup`, `tsup.config.*` |
+| tsdown | `tsdown`, `tsdown.config.*` |
+| Rolldown | `rolldown`, `rolldown-vite`, `rolldown.config.*` |
+| esbuild | `esbuild` dependency |
+| webpack | `webpack`, `webpack.config.*` |
+| Rspack | `@rspack/core`, `@rspack/cli`, `rspack.config.*` |
+| uv | `uv.lock` or `[tool.uv]` / related sections in `pyproject.toml` |
+| Poetry | `poetry.lock` or `[tool.poetry]` sections in `pyproject.toml` |
+| Ruff | `ruff.toml`, `.ruff.toml`, Python `ruff` or `[tool.ruff]` sections |
+| Bazel | `MODULE.bazel`, `WORKSPACE.bazel`, `WORKSPACE`, `.bazelrc`, `BUILD.bazel` |
+
+These additions are **detection-only** until upstream skill paths are verified and synced. Vite+ is distinct from ordinary Vite projects; `.tool-versions` alone is not treated as mise because it is also used by other version managers. All paths are checked relative to the project or workspace.
 
 Python SDK matching reads declared dependencies in `requirements.txt`, `pyproject.toml` (project, optional, dependency groups and Poetry), and `Pipfile`. Package names are matched as complete names, so `other-anthropic-sdk` will not be mistaken for the Anthropic SDK. Directory detection uses project-relative existence checks.
 
