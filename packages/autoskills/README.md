@@ -6,7 +6,7 @@ Auto-detect and install the best AI agent skills for your project. One command, 
 npx autoskills
 ```
 
-`autoskills` scans your project, detects the technologies you use, and installs curated [AI agent skills](https://skills.sh) that make Cursor, Claude Code, and other AI coding assistants actually understand your stack.
+`autoskills` scans your project, detects the technologies you use, and installs curated [AI agent skills](https://skills.sh) that make Pi, Cursor, Claude Code, and other AI coding assistants actually understand your stack.
 
 ## Quick Start
 
@@ -22,7 +22,6 @@ That's it. It will:
 2. **Detect** every technology in your stack
 3. **Show** an interactive selector with the best skills for your project
 4. **Install** them in parallel with live progress
-5. **Generate `CLAUDE.md` automatically** when Claude Code is one of the target agents
 
 ### Skip the prompt
 
@@ -44,20 +43,34 @@ npx autoskills ui
 
 Opens a local desk (bound to `127.0.0.1`) to browse the skills installed in the current project.
 
-### Claude Code summary
+### Update installed skills
 
-If `claude-code` is auto-detected or passed with `-a`, `autoskills` writes a `CLAUDE.md` file in your project root summarizing the markdown files installed under `.claude/skills`.
+```bash
+npx autoskills update --dry-run
+npx autoskills update
+npx autoskills update -y
+```
+
+The update command checks the upstream contents of skills recorded in `skills-lock.json`, lets you select outdated skills, and refreshes their existing agent drawers. Unrelated repository commits do not count as skill updates. The first update of an old registry installation migrates it to upstream tracking. Updates replace installed content and remove files deleted upstream.
+
+### Pi agent
+
+```bash
+npx autoskills -a pi
+```
+
+Pi skills are linked into `.pi/skills`. The desk discovers both project skills and global skills under `~/.pi/agent/skills`. Claude Code still uses `.claude/skills`; `CLAUDE.md` is never created or modified.
 
 ## Options
 
-| Flag              | Description                                                |
-| ----------------- | ---------------------------------------------------------- |
-| `-y`, `--yes`     | Skip confirmation prompt, install all detected skills      |
-| `--dry-run`       | Show detected skills without installing anything           |
-| `--clear-cache`   | Clear the downloaded skills cache                          |
-| `-a`, `--agent`   | Install for specific IDEs only (e.g. `cursor claude-code`) |
-| `-v`, `--verbose` | Show install trace and error details                       |
-| `-h`, `--help`    | Show help message                                          |
+| Flag              | Description                                                   |
+| ----------------- | ------------------------------------------------------------- |
+| `-y`, `--yes`     | Skip confirmation prompt, install all detected skills         |
+| `--dry-run`       | Show detected skills without installing anything              |
+| `--clear-cache`   | Clear the downloaded skills cache                             |
+| `-a`, `--agent`   | Install for specific IDEs only (e.g. `cursor claude-code pi`) |
+| `-v`, `--verbose` | Show install trace and error details                          |
+| `-h`, `--help`    | Show help message                                             |
 
 `autoskills ui` also accepts `--port <number>` and `--no-open`.
 
@@ -184,7 +197,9 @@ When multiple technologies are used together, `autoskills` detects **technology 
 
 ## How It Works
 
-Skills are markdown files that teach AI assistants how to work with specific technologies, following best practices and patterns from the official maintainers. `autoskills` installs them from its own curated registry: maintainers sync them from their upstream repositories (the ones listed on [skills.sh](https://skills.sh)), an AI security review blocks anything that attacks the user or plants a serious vulnerability, and every file is recorded with a SHA-256 hash that the CLI verifies before writing it.
+Skills are markdown files that teach AI assistants how to work with specific technologies. `autoskills` uses its curated technology map to select skills, then downloads them and their supporting files directly from their upstream GitHub repositories. Each installation resolves the latest default-branch commit, verifies downloaded bytes against the commit's Git blob hashes, and records upstream provenance and content hashes in `skills-lock.json`.
+
+Installation does not use the locally synced registry or download from an autoskills mirror. The former registry's reviews do not apply to live upstream content. Set `GITHUB_TOKEN` or `GH_TOKEN` for private repositories or higher API limits.
 
 The detection runs entirely locally with zero network requests until installation begins.
 

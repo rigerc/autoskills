@@ -1,11 +1,14 @@
 import {
   copyFileSync,
+  chmodSync,
+  lstatSync,
+  mkdtempSync,
+  renameSync,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -16,13 +19,12 @@ import { fileURLToPath } from "node:url";
 
 import { parseSkillPath } from "./lib.ts";
 import type { SkillEntry } from "./lib.ts";
+import { bundleHash, downloadSourceSkill, resolveSourceSkill } from "./source.ts";
+import type { SourceOptions, SourceSkill } from "./source.ts";
 import { AGENT_FOLDER_MAP } from "./skills-map.ts";
 import { log, write, dim, green, cyan, red, HIDE_CURSOR, SHOW_CURSOR, SPINNER } from "./colors.ts";
 
 // ── Registry ─────────────────────────────────────────────────
-
-const DEFAULT_REGISTRY_RAW_BASE_URL_PREFIX = "https://raw.githubusercontent.com/midudev/autoskills";
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
 
 export interface RegistryEntry {
   source: string;
@@ -58,26 +60,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let _cachedRegistry: Registry | null | undefined;
 let _cachedRegistryDir: string | null = null;
-let _cachedPackageVersion: string | null | undefined;
-
-function getPackageVersion(): string | null {
-  if (_cachedPackageVersion !== undefined) return _cachedPackageVersion;
-
-  const candidates = [join(__dirname, "package.json"), join(__dirname, "..", "package.json")];
-  for (const c of candidates) {
-    try {
-      const pkg = JSON.parse(readFileSync(c, "utf-8")) as { version?: unknown };
-      if (typeof pkg.version === "string" && pkg.version.length > 0) {
-        _cachedPackageVersion = pkg.version;
-        return _cachedPackageVersion;
-      }
-    } catch {}
-  }
-
-  _cachedPackageVersion = null;
-  return _cachedPackageVersion;
-}
-
 export function getRegistryDir(): string {
   if (_cachedRegistryDir) return _cachedRegistryDir;
   const candidates = [join(__dirname, "skills-registry"), join(__dirname, "..", "skills-registry")];
@@ -161,45 +143,18 @@ export interface InstallSecurityCheck {
   findings: string[];
 }
 
-interface InstallOptions {
+export interface InstallOptions extends SourceOptions {
   projectDir?: string;
-  registryDir?: string;
-  registryBaseUrl?: string;
-  fetchImpl?: typeof fetch;
   verbose?: boolean;
-  onTrace?: (message: string) => void;
+  resolvedSource?: SourceSkill;
 }
 
 function relPathFromTo(from: string, to: string): string {
-  const rel = relative(from, to);
-  return rel.split("\\").join("/");
+  return relative(from, to).split("\\").join("/");
 }
 
 function normalizeRegistryRelPath(rel: string): string {
   return rel.split("\\").join("/");
-}
-
-function sha256Buffer(buf: Buffer): string {
-  return createHash("sha256").update(buf).digest("hex");
-}
-
-function getRegistryRawBaseUrls(opts: InstallOptions): string[] {
-  const configured = opts.registryBaseUrl || process.env.AUTOSKILLS_REGISTRY_BASE_URL;
-  if (configured) return [configured.replace(/\/+$/, "")];
-
-  const version = getPackageVersion();
-  if (!version) {
-    throw new Error("could not resolve autoskills package version for registry download");
-  }
-
-  return [
-    `${DEFAULT_REGISTRY_RAW_BASE_URL_PREFIX}/v${version}/packages/autoskills/skills-registry`,
-    `${DEFAULT_REGISTRY_RAW_BASE_URL_PREFIX}/main/packages/autoskills/skills-registry`,
-  ];
-}
-
-function getInstallRegistryDir(opts: InstallOptions): string {
-  return opts.registryDir || getRegistryDir();
 }
 
 export function getAutoskillsCacheDir(): string {
@@ -215,229 +170,9 @@ export function clearAutoskillsCache(): { cacheDir: string; removed: boolean } {
   return { cacheDir, removed };
 }
 
-function getCacheRegistryDir(entry: RegistryEntry): string {
-  return join(getAutoskillsCacheDir(), entry.bundleHash);
-}
-
-function securityCheckForEntry(skillName: string, entry: RegistryEntry): InstallSecurityCheck {
-  if (entry.securityCheck) {
-    return {
-      name: skillName,
-      status: entry.securityCheck.status,
-      summary: entry.securityCheck.summary,
-      findings: entry.securityCheck.findings,
-    };
-  }
-
-  return {
-    name: skillName,
-    status: entry.review?.status === "flagged" ? "warning" : "ok",
-    summary:
-      entry.review?.summary ||
-      (entry.review?.status === "flagged"
-        ? "The sync review found issues that should be checked."
-        : "The sync review did not find security issues."),
-    findings: entry.review?.flags || [],
-  };
-}
-
-export function securityCheckForSkillPath(skillPath: string): InstallSecurityCheck | null {
-  const { skillName } = parseSkillPath(skillPath);
-  if (!skillName) return null;
-
-  const registry = loadRegistry();
-  const entry = registry?.skills[skillName];
-  if (!entry) return null;
-
-  return securityCheckForEntry(skillName, entry);
-}
-
-function encodeRawPath(skillName: string, rel: string): string {
-  return [skillName, ...normalizeRegistryRelPath(rel).split("/")].map(encodeURIComponent).join("/");
-}
-
-function githubDownloadHeaders(url: string): HeadersInit {
-  const headers: Record<string, string> = { "User-Agent": "autoskills" };
-  const host = new URL(url).hostname;
-  if (GITHUB_TOKEN && /(^|\.)githubusercontent\.com$/i.test(host)) {
-    headers.Authorization = `Bearer ${GITHUB_TOKEN}`;
-  }
-  return headers;
-}
-
-function isDisallowedSkillFile(rel: string): boolean {
-  return rel.toLowerCase().endsWith(".zip");
-}
-
-// Bounded parallelism for raw file downloads, shared by every concurrent install:
-// some skills ship hundreds of files, so fetching them one by one dominated install time.
-const MAX_PARALLEL_DOWNLOADS = 16;
-let activeDownloads = 0;
-const downloadQueue: (() => void)[] = [];
-
-async function withDownloadSlot<T>(task: () => Promise<T>): Promise<T> {
-  if (activeDownloads < MAX_PARALLEL_DOWNLOADS) activeDownloads++;
-  else await new Promise<void>((resolve) => downloadQueue.push(resolve));
-  try {
-    return await task();
-  } finally {
-    // Hand the slot straight to the next waiter so the limit is never exceeded.
-    const next = downloadQueue.shift();
-    if (next) next();
-    else activeDownloads--;
-  }
-}
-
-async function downloadRegistryFile(
-  skillName: string,
-  entry: RegistryEntry,
-  rel: string,
-  opts: InstallOptions,
-): Promise<{ buf: Buffer; url: string; hash: string }> {
-  const normalizedRel = normalizeRegistryRelPath(rel);
-
-  if (isDisallowedSkillFile(normalizedRel)) {
-    throw new Error(`refusing to download disallowed skill archive: ${normalizedRel}`);
-  }
-
-  const expected = entry.sha256[rel] || entry.sha256[normalizedRel];
-  if (!expected) {
-    throw new Error(`no recorded hash for ${normalizedRel}`);
-  }
-
-  const fetchFile = opts.fetchImpl || fetch;
-  const errors = [];
-  for (const baseUrl of getRegistryRawBaseUrls(opts)) {
-    const url = `${baseUrl}/${encodeRawPath(skillName, normalizedRel)}`;
-    opts.onTrace?.(`GET ${url}`);
-    const res = await fetchFile(url, {
-      headers: githubDownloadHeaders(url),
-    });
-    if (!res.ok) {
-      const resetAt = Number(res.headers.get("x-ratelimit-reset") || 0) * 1000;
-      const resetSuffix = resetAt ? ` (resets ${new Date(resetAt).toISOString()})` : "";
-      if (res.status === 403 && res.headers.get("x-ratelimit-remaining") === "0") {
-        throw new Error(
-          `GitHub rate limit exceeded${resetSuffix}. Set GITHUB_TOKEN or GH_TOKEN to increase the limit.`,
-        );
-      }
-      errors.push(`${res.status} ${res.statusText} from ${baseUrl}`);
-      opts.onTrace?.(`miss ${normalizedRel}: ${res.status} ${res.statusText} from ${baseUrl}`);
-      continue;
-    }
-
-    const buf = Buffer.from(await res.arrayBuffer());
-    const actual = sha256Buffer(buf);
-    if (actual !== expected) {
-      errors.push(`hash mismatch from ${baseUrl}`);
-      opts.onTrace?.(`hash mismatch for ${normalizedRel} from ${baseUrl}`);
-      continue;
-    }
-    opts.onTrace?.(`downloaded ${normalizedRel} from ${url}`);
-    return { buf, url, hash: actual };
-  }
-
-  throw new Error(`download failed for ${normalizedRel}: ${errors.join("; ")}`);
-}
-
-async function downloadRegistryEntry(
-  skillName: string,
-  entry: RegistryEntry,
-  destDir: string,
-  opts: InstallOptions,
-): Promise<void> {
-  const files = await Promise.all(
-    entry.files.map(async (rel) => ({
-      rel: normalizeRegistryRelPath(rel),
-      ...(await withDownloadSlot(() => downloadRegistryFile(skillName, entry, rel, opts))),
-    })),
-  );
-
-  const bundleHash = createHash("sha256")
-    .update(
-      files
-        .map(({ rel, hash }) => `${rel}:${hash}`)
-        .sort()
-        .join("\n"),
-    )
-    .digest("hex");
-  if (bundleHash !== entry.bundleHash) {
-    throw new Error("bundle hash mismatch");
-  }
-
-  rmSync(destDir, { recursive: true, force: true });
-  for (const { rel, buf } of files) {
-    const dest = join(destDir, ...rel.split("/"));
-    mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, buf);
-  }
-  opts.onTrace?.(`wrote downloaded bundle to ${destDir}`);
-}
-
-function copyRegistryEntryFromLocal(
-  skillName: string,
-  entry: RegistryEntry,
-  destDir: string,
-  opts: InstallOptions,
-): boolean {
-  const registryDir = getInstallRegistryDir(opts);
-  opts.onTrace?.(`checking local registry: ${join(registryDir, skillName)}`);
-  const verdict = verifyRegistryEntry(skillName, entry, registryDir);
-  if (!verdict.ok) {
-    opts.onTrace?.(`local registry miss: ${verdict.reason}`);
-    return false;
-  }
-
-  rmSync(destDir, { recursive: true, force: true });
-  copyDir(join(registryDir, skillName), destDir);
-  opts.onTrace?.(`copied from local registry: ${join(registryDir, skillName)}`);
-  return true;
-}
-
-function copyRegistryEntryFromCache(
-  skillName: string,
-  entry: RegistryEntry,
-  destDir: string,
-  opts: InstallOptions,
-): boolean {
-  const registryDir = getCacheRegistryDir(entry);
-  opts.onTrace?.(`checking download cache: ${join(registryDir, skillName)}`);
-  const verdict = verifyRegistryEntry(skillName, entry, registryDir);
-  if (!verdict.ok) {
-    opts.onTrace?.(`cache miss: ${verdict.reason}`);
-    return false;
-  }
-
-  rmSync(destDir, { recursive: true, force: true });
-  copyDir(join(registryDir, skillName), destDir);
-  opts.onTrace?.(`copied from download cache: ${join(registryDir, skillName)}`);
-  return true;
-}
-
-async function downloadRegistryEntryToCache(
-  skillName: string,
-  entry: RegistryEntry,
-  opts: InstallOptions,
-): Promise<string> {
-  const registryDir = getCacheRegistryDir(entry);
-  const skillDir = join(registryDir, skillName);
-  opts.onTrace?.(`downloading to cache: ${skillDir}`);
-  await downloadRegistryEntry(skillName, entry, skillDir, opts);
-  return skillDir;
-}
-
-function ensureSymlinkTo(target: string, linkPath: string): void {
-  mkdirSync(dirname(linkPath), { recursive: true });
-  try {
-    const st = statSync(linkPath);
-    if (st) rmSync(linkPath, { recursive: true, force: true });
-  } catch {}
-  const rel = relPathFromTo(dirname(linkPath), target);
-  try {
-    symlinkSync(rel, linkPath, "dir");
-  } catch {
-    copyDir(target, linkPath);
-  }
+// Synced registry reviews describe old snapshots, not the live upstream content.
+export function securityCheckForSkillPath(_skillPath: string): InstallSecurityCheck | null {
+  return null;
 }
 
 function copyDir(src: string, dest: string): void {
@@ -445,11 +180,23 @@ function copyDir(src: string, dest: string): void {
   for (const e of readdirSync(src, { withFileTypes: true })) {
     const s = join(src, e.name);
     const d = join(dest, e.name);
-    if (e.isDirectory()) {
-      copyDir(s, d);
-    } else if (e.isFile()) {
-      copyFileSync(s, d);
-    }
+    if (e.isDirectory()) copyDir(s, d);
+    else if (e.isFile()) copyFileSync(s, d);
+  }
+}
+
+function ensureSymlinkTo(target: string, linkPath: string): void {
+  mkdirSync(dirname(linkPath), { recursive: true });
+  try {
+    lstatSync(linkPath);
+    rmSync(linkPath, { recursive: true, force: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  try {
+    symlinkSync(relPathFromTo(dirname(linkPath), target), linkPath, "dir");
+  } catch {
+    copyDir(target, linkPath);
   }
 }
 
@@ -460,28 +207,38 @@ export function agentFolderFor(agent: string): string | null {
   return null;
 }
 
-function updateSkillsLock(projectDir: string, skillName: string, entry: RegistryEntry): void {
-  const lockPath = join(projectDir, "skills-lock.json");
-  let lock: { version: number; skills: Record<string, unknown> };
-  try {
-    lock = JSON.parse(readFileSync(lockPath, "utf-8"));
-    if (!lock || typeof lock !== "object" || !lock.skills) {
-      lock = { version: 1, skills: {} };
-    }
-  } catch {
-    lock = { version: 1, skills: {} };
+export interface LockedSkill {
+  source: string;
+  sourceType: string;
+  skillPath?: string;
+  commitSha?: string;
+  sourceHash?: string;
+  computedHash?: string;
+  agents?: string[];
+}
+
+export function readSkillsLock(projectDir: string): {
+  version: number;
+  skills: Record<string, LockedSkill>;
+} {
+  const path = join(projectDir, "skills-lock.json");
+  if (!existsSync(path)) return { version: 1, skills: {} };
+  const lock = JSON.parse(readFileSync(path, "utf-8"));
+  if (!lock?.skills || typeof lock.skills !== "object" || Array.isArray(lock.skills)) {
+    throw new Error("invalid skills-lock.json: expected a skills object");
   }
-  lock.skills[skillName] = {
-    source: entry.source,
-    sourceType: "autoskills-registry",
-    computedHash: entry.bundleHash,
-  };
-  const sortedSkills: Record<string, unknown> = {};
-  for (const k of Object.keys(lock.skills).sort()) {
-    sortedSkills[k] = lock.skills[k];
+  return lock;
+}
+
+export function installedAgents(projectDir: string, name: string, locked?: LockedSkill): string[] {
+  const agents = new Set(Array.isArray(locked?.agents) ? locked.agents : []);
+  for (const [folder, agent] of Object.entries(AGENT_FOLDER_MAP)) {
+    try {
+      lstatSync(join(projectDir, folder, "skills", name));
+      agents.add(agent);
+    } catch {}
   }
-  lock.skills = sortedSkills;
-  writeFileSync(lockPath, JSON.stringify(lock, null, 2) + "\n");
+  return [...agents];
 }
 
 export async function installSkill(
@@ -491,102 +248,86 @@ export async function installSkill(
 ): Promise<InstallResult> {
   const projectDir = opts.projectDir || process.cwd();
   const command = `autoskills install ${skillPath}`;
-
-  const fail = (msg: string): InstallResult => ({
-    success: false,
-    output: msg,
-    stderr: msg,
-    exitCode: 1,
-    command,
-  });
-
-  const { skillName } = parseSkillPath(skillPath);
-  if (!skillName) return fail(`invalid skill path: ${skillPath}`);
-  opts.onTrace?.(`resolving ${skillPath}`);
-
-  const registry = loadRegistry();
-  if (!registry) {
-    return fail(
-      `skills-registry index not found. Run 'pnpm sync:skills' in the autoskills package.`,
-    );
-  }
-
-  const entry = registry.skills[skillName];
-  if (!entry) {
-    return fail(`skill '${skillName}' not found in registry (unaudited).`);
-  }
-  const securityCheck = securityCheckForEntry(skillName, entry);
-  opts.onTrace?.(`registry source: ${entry.source} @ ${entry.commitSha}`);
-
-  const canonicalDir = join(projectDir, ".agents", "skills", skillName);
   try {
-    const installedVerdict = verifyRegistryEntry(
-      skillName,
-      entry,
-      join(projectDir, ".agents", "skills"),
-    );
-    if (installedVerdict.ok) {
-      opts.onTrace?.(`already installed and verified: ${canonicalDir}`);
-    } else {
-      opts.onTrace?.(`installed copy needs refresh: ${installedVerdict.reason}`);
-    }
-    if (
-      !installedVerdict.ok &&
-      !copyRegistryEntryFromLocal(skillName, entry, canonicalDir, opts) &&
-      !copyRegistryEntryFromCache(skillName, entry, canonicalDir, opts)
-    ) {
-      const cachedSkillDir = await downloadRegistryEntryToCache(skillName, entry, opts);
-      rmSync(canonicalDir, { recursive: true, force: true });
-      copyDir(cachedSkillDir, canonicalDir);
-      opts.onTrace?.(`copied downloaded bundle into ${canonicalDir}`);
-    }
-  } catch (err) {
-    return fail(`download failed: ${(err as Error).message}`);
-  }
-
-  const uniqueFolders = new Set<string>();
-  for (const agent of agents) {
-    if (agent === "universal") continue;
-    const folder = agentFolderFor(agent);
-    if (folder) uniqueFolders.add(folder);
-  }
-
-  const symlinkErrors: string[] = [];
-  for (const folder of uniqueFolders) {
-    const linkPath = join(projectDir, folder, "skills", skillName);
+    const source = opts.resolvedSource || (await resolveSourceSkill(skillPath, opts));
+    const lock = readSkillsLock(projectDir);
+    const resolvedAgents = [
+      ...new Set([
+        ...installedAgents(projectDir, source.name, lock.skills[source.name]),
+        ...agents,
+      ]),
+    ];
+    const files = await downloadSourceSkill(source, opts);
+    const hash = bundleHash(files);
+    const skillsDir = join(projectDir, ".agents", "skills");
+    mkdirSync(skillsDir, { recursive: true });
+    const canonicalDir = join(skillsDir, source.name);
+    const stage = mkdtempSync(join(skillsDir, ".autoskills-"));
+    const backup = `${stage}-backup`;
+    let backedUp = false;
+    let replaced = false;
     try {
-      ensureSymlinkTo(canonicalDir, linkPath);
-      opts.onTrace?.(`linked ${linkPath} -> ${canonicalDir}`);
-    } catch (err) {
-      symlinkErrors.push(`${folder}: ${(err as Error).message}`);
+      for (const file of files) {
+        const dest = join(stage, ...file.path.split("/"));
+        mkdirSync(dirname(dest), { recursive: true });
+        writeFileSync(dest, file.content);
+        if (file.executable) chmodSync(dest, 0o755);
+      }
+      try {
+        lstatSync(canonicalDir);
+        backedUp = true;
+      } catch {}
+      if (backedUp) renameSync(canonicalDir, backup);
+      try {
+        renameSync(stage, canonicalDir);
+        replaced = true;
+      } catch (err) {
+        if (backedUp) renameSync(backup, canonicalDir);
+        throw err;
+      }
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
+      if (replaced) rmSync(backup, { recursive: true, force: true });
     }
-  }
+    const errors: string[] = [];
+    for (const agent of resolvedAgents) {
+      const folder = agentFolderFor(agent);
+      if (!folder) continue;
+      try {
+        ensureSymlinkTo(canonicalDir, join(projectDir, folder, "skills", source.name));
+      } catch (err) {
+        errors.push(`${folder}: ${(err as Error).message}`);
+      }
+    }
+    if (errors.length) throw new Error(errors.join("\n"));
 
-  try {
-    updateSkillsLock(projectDir, skillName, entry);
-    opts.onTrace?.(`updated lockfile: ${join(projectDir, "skills-lock.json")}`);
-  } catch (err) {
-    return fail(`lockfile update failed: ${(err as Error).message}`);
-  }
-
-  if (symlinkErrors.length > 0) {
+    // Read again after awaits so concurrent installs preserve each other's entries.
+    const latestLock = readSkillsLock(projectDir);
+    latestLock.skills[source.name] = {
+      source: source.source,
+      sourceType: "github",
+      skillPath: source.skillPath,
+      commitSha: source.commitSha,
+      sourceHash: source.sourceHash,
+      computedHash: hash,
+      agents: resolvedAgents,
+    };
+    latestLock.skills = Object.fromEntries(
+      Object.entries(latestLock.skills).sort(([a], [b]) => a.localeCompare(b)),
+    );
+    writeFileSync(join(projectDir, "skills-lock.json"), JSON.stringify(latestLock, null, 2) + "\n");
+    opts.onTrace?.(`installed ${source.source}@${source.commitSha}:${source.skillPath}`);
     return {
-      success: false,
-      output: symlinkErrors.join("\n"),
-      stderr: symlinkErrors.join("\n"),
-      exitCode: 1,
+      success: true,
+      output: `installed ${source.name} into ${relPathFromTo(projectDir, canonicalDir)}`,
+      stderr: "",
+      exitCode: 0,
       command,
     };
+  } catch (err) {
+    const message = (err as Error).message;
+    return { success: false, output: message, stderr: message, exitCode: 1, command };
   }
-
-  return {
-    success: true,
-    output: `installed ${skillName} into ${relPathFromTo(projectDir, canonicalDir)}`,
-    stderr: "",
-    exitCode: 0,
-    command,
-    securityCheck,
-  };
 }
 
 // ── Batch install (concurrent + spinner) ─────────────────────
@@ -617,6 +358,7 @@ export async function installAll(
   agents: string[] = [],
   opts: InstallOptions = {},
 ): Promise<InstallAllResult> {
+  opts = { ...opts, repoTrees: opts.repoTrees || new Map() };
   if (opts.verbose) return installAllVerbose(skills, agents, opts);
   if (!process.stdout.isTTY) return installAllSimple(skills, agents, opts);
 

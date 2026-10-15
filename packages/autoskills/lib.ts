@@ -539,11 +539,16 @@ export function detectCombos(detectedIds: string[]): ComboSkill[] {
 
 // ── Agent Detection ─────────────────────────────────────────
 
-export function detectAgents(home: string = homedir()): string[] {
+export function detectAgents(home: string = homedir(), projectDir?: string): string[] {
   const agents = ["universal"];
 
   for (const [folder, agentName] of AGENT_FOLDER_ENTRIES) {
-    if (existsSync(join(home, folder, "skills"))) {
+    const systemFolder = agentName === "pi" ? ".pi/agent" : folder;
+    if (
+      existsSync(join(home, systemFolder, "skills")) ||
+      (agentName === "pi" && existsSync(join(home, ".pi"))) ||
+      (projectDir && existsSync(join(projectDir, folder)))
+    ) {
       agents.push(agentName);
     }
   }

@@ -1328,6 +1328,7 @@ export const FRONTEND_BONUS_SKILLS: string[] = [
 
 export const AGENT_FOLDER_MAP: Record<string, string> = {
   ".claude": "claude-code",
+  ".pi": "pi",
   ".cline": "cline",
   ".junie": "junie",
   ".codebuddy": "codebuddy",

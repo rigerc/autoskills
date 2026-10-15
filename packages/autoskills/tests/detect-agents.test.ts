@@ -19,6 +19,16 @@ describe("detectAgents", () => {
     ok(agents.includes("claude-code"));
   });
 
+  it("detects Pi from its global agent directory", () => {
+    mkdirSync(join(tmp.path, ".pi", "agent", "skills"), { recursive: true });
+    ok(detectAgents(tmp.path).includes("pi"));
+  });
+
+  it("detects Pi from a project .pi folder", () => {
+    mkdirSync(join(tmp.path, "project", ".pi"), { recursive: true });
+    ok(detectAgents(join(tmp.path, "empty-home"), join(tmp.path, "project")).includes("pi"));
+  });
+
   it("detects junie from .junie/skills", () => {
     mkdirSync(join(tmp.path, ".junie", "skills"), { recursive: true });
     ok(detectAgents(tmp.path).includes("junie"));
