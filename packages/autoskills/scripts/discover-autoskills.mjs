@@ -11,9 +11,9 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { norm, phrase, unique, basename, signals, queriesFor, domain,
+import { norm, phrase, unique, basename, signals, domain,
   bestMatches, createQueryPlanner, parseSkillMarkdown } from './discovery-matcher.mjs';
 
 const DEFAULT_DIRECTORY_API = 'https://www.skillsdirectory.com/api/registry';
@@ -25,7 +25,7 @@ const REPO_RE = /^[a-z\d_.-]+\/[a-z\d_.-]+$/i;
 function options(argv) {
   const out = {
     repoRoot: null, tech: [], category: '', sort: 'recent', limit: 50,
-    pages: 1, recentPages: 1, categoryPages: 1, queriesPerTech: 1, directorySearches: 60, minScore: 35,
+    pages: 1, recentPages: 1, categoryPages: 1, queriesPerTech: 3, directorySearches: 60, minScore: 35,
     detailsLimit: 35, verifyLimit: 25, maxPerTech: 5,
     output: 'skills-discovery.json', markdown: 'skills-discovery.md',
     selectionOutput: 'skills-discovery.selected.json',
@@ -66,7 +66,7 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --pages N             Pages per technology query (default: 1)
   --recent-pages N      Also scan N global recent pages (default: 1)
   --category-pages N    Scan N pages per relevant category for tag-only matches (default: 1)
-  --queries-per-tech N  Name/ID/package queries per technology (default: 1)
+  --queries-per-tech N  Name/ID/package queries per technology (default: 3)
   --directory-searches N Maximum total directory text searches (default: 60)
   --min-score N         Minimum semantic relevance (default: 35)
   --details-limit N     Fetch details for top N candidates (default: 35)
@@ -788,21 +788,23 @@ async function main() {
   for(const skill of found.items) {
     if(!REPO_RE.test(String(skill.repository||''))) continue;
     const matches=bestMatches(skill,profiles,opts.minScore);
-    if(!matches.length) continue;
-    directoryCandidates.push({source:'skillsdirectory',skill,matches,score:matches[0].score,notes:[]});
+    // Retain sparse list entries for bounded detail enrichment; richer metadata
+    // may reveal an actual skill-level match that the list omitted.
+    directoryCandidates.push({source:'skillsdirectory',skill,matches,score:matches[0]?.score??0,notes:[]});
   }
   directoryCandidates.sort((a,b)=>b.score-a.score);
   await enrich(directoryCandidates,opts);
   const mdCandidates=[];
   for(const skill of md.items) {
     const matches=bestMatches(skill,profiles,opts.minScore);
-    if(!matches.length) continue;
-    mdCandidates.push({source:'skillsmd',skill,matches,score:matches[0].score,notes:[]});
+    mdCandidates.push({source:'skillsmd',skill,matches,score:matches[0]?.score??0,notes:[]});
   }
   mdCandidates.sort((a,b)=>b.score-a.score);
   await enrichSkillsMd(mdCandidates,opts);
   const candidates=[...directoryCandidates,...mdCandidates]
-    .filter(x=>x.score>=opts.minScore)
+    // Provisional retrieval cutoff: final min-score and eligibility are applied
+    // only after reading the immutable SKILL.md content.
+    .filter(x=>x.score>=Math.min(15,opts.minScore))
     .sort((a,b)=>b.score-a.score || a.skill.repository.localeCompare(b.skill.repository));
   const verified=await verify(balanceSources(candidates),opts,existing);
   const final=verified.map(item=>{
