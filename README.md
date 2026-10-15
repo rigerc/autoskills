@@ -59,18 +59,20 @@ Run `npx autoskills ui` to browse the skills installed in your project in a loca
 
 ## Supported Technologies
 
-Built to work across modern frontend, backend, mobile, cloud, and media stacks.
+Detects **123 technologies** and **33 technology combos** across frontend, backend, cloud, mobile, data, and AI stacks. Some detection-only technologies do not have synced skill sources yet.
 
-- **Frameworks & UI:** React, Next.js, Vue, Nuxt, Svelte, Angular, Astro, Tailwind CSS, shadcn/ui, GSAP, Three.js
-- **Languages & Runtimes:** TypeScript, Node.js, Go, Bun, Dart
-- **Backend & APIs:** Express, Hono, NestJS, Spring Boot
-- **Mobile & Desktop:** Expo, React Native, Flutter, SwiftUI, Android, Kotlin Multiplatform, Tauri, Electron
-- **Data & Storage:** Supabase, Neon, Prisma, Drizzle ORM, Zod, React Hook Form
-- **Auth & Billing:** Better Auth, Clerk, Stripe
-- **Testing:** Vitest, Playwright
-- **Cloud & Infrastructure:** Vercel, Vercel AI SDK, Cloudflare, Durable Objects, Cloudflare Agents, Cloudflare AI, AWS, Azure, Terraform
-- **Tooling:** Turborepo, Vite, oxlint
-- **Media & AI:** Remotion, ElevenLabs
+- **Frontend & UI:** React, Next.js, Vue, Nuxt, Pinia, Svelte, Angular, Astro, SolidJS, Tailwind CSS, shadcn/ui, TanStack Start, TanStack Query, Zustand, Redux, Storybook, GSAP, Three.js
+- **Languages & runtimes:** TypeScript, Node.js, Go, Bun, Dart, Ruby, Python, Java, Rust, C#, .NET, PHP, Kotlin, Swift, Elixir, C++
+- **Backend & APIs:** Express, Hono, NestJS, Spring Boot, Rails, Django, FastAPI, Flask, Laravel, ASP.NET Core, GraphQL, tRPC, FastMCP
+- **Mobile & desktop:** Expo, React Native, Flutter, SwiftUI, Kotlin Multiplatform, Android, Tauri, Electron
+- **Databases & data:** Supabase, Neon, InstantDB, MongoDB, Firebase, Convex, Redis, Prisma, Drizzle ORM, SQLAlchemy, Pydantic, PostgreSQL, Pandas, NumPy
+- **Auth & payments:** Better Auth, Clerk, Stripe, Devise
+- **Testing & quality:** pytest, RSpec, Vitest, Jest, Cypress, Playwright, ESLint, Biome, oxlint, RuboCop
+- **Cloud & infrastructure:** Docker, GitHub Actions, Kubernetes, Helm, Terraform, AWS, Azure, Vercel, Cloudflare
+- **AI & observability:** OpenAI SDK, Anthropic SDK, LangChain, MCP SDK, Hugging Face, Sentry, Vercel AI SDK, ElevenLabs
+- **Other tooling:** Turborepo, Vite, Remotion, WordPress, Chrome extensions, and more
+
+See the [package's complete technology and combo tables](./packages/autoskills/README.md#supported-technologies).
 
 ## Requirements
 
