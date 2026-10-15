@@ -349,6 +349,11 @@ h3 {
   place-items: end;
 }
 
+.sheet[hidden],
+.confirm[hidden] {
+  display: none !important;
+}
+
 .sheet-inner,
 .confirm-card {
   width: min(640px, 100%);
