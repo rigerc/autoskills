@@ -141,8 +141,12 @@ function rejectsTechnology(skill, profile) {
   if (profile.tech.id === 'go') {
     const hay = norm([skill.name,skill.slug,skill.description,
       ...(skill.tags||[]), ...(skill.topics||[]), skill.body].join(' '));
-    if (phrase(hay,'go to market') || phrase(hay,'go to') && !phrase(hay,'golang')) return true;
-    return !/(golang|go mod|goroutine|go programming|go language|go compiler|go module|go package|go code|go backend|go concurrency|go function|go testing)/.test(hay);
+    if (phrase(hay,'go to market') || (phrase(hay,'go to') && !phrase(hay,'golang'))) return true;
+    if (/(golang|go mod|goroutine|go programming|go language|go compiler|go module|go package|go code|go backend|go concurrency|go function|go testing)/.test(hay)) return false;
+    // For a Go-specific title, programming-domain context can disambiguate
+    // legitimate short titles such as "Go routines" without accepting "go to".
+    const inTitle=phrase(norm(skill.name),'go') || phrase(norm(skill.slug),'go');
+    return !(inTitle && /(programming|developer|development|compiler|backend|concurrency|module|package|runtime|software|coding|api)/.test(hay));
   }
   return false;
 }
