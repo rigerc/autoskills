@@ -1,4 +1,4 @@
-import { resolve, dirname, join } from "node:path";
+import { resolve, dirname, join, basename } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -23,6 +23,7 @@ import { printBanner, multiSelect, formatTime } from "./ui.ts";
 import { clearAutoskillsCache, installAll, securityCheckForSkillPath } from "./installer.ts";
 import type { InstallSecurityCheck } from "./installer.ts";
 import { checkSkillUpdates, updateSkill } from "./updater.ts";
+import { findGitRepos } from "./repos.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VERSION: string = (() => {
@@ -55,6 +56,7 @@ interface CliArgs {
   agents: string[];
   port: number | null;
   noOpen: boolean;
+  reposDir: string | null;
 }
 
 function parseArgs(): CliArgs {
@@ -70,8 +72,13 @@ function parseArgs(): CliArgs {
   }
   const portIdx = args.findIndex((a) => a === "-p" || a === "--port");
   const portValue = portIdx !== -1 ? Number(args[portIdx + 1]) : NaN;
+  const reposIdx = args.indexOf("--repos");
+  if (reposIdx !== -1 && (!args[reposIdx + 1] || args[reposIdx + 1].startsWith("-"))) {
+    throw new Error("--repos requires a directory path");
+  }
   return {
     command,
+    reposDir: reposIdx === -1 ? null : args[reposIdx + 1],
     autoYes: args.includes("-y") || args.includes("--yes"),
     dryRun: args.includes("--dry-run"),
     verbose: args.includes("--verbose") || args.includes("-v"),
@@ -94,12 +101,14 @@ function showHelp(): void {
     npx autoskills ${dim("-y")}                   Skip confirmation
     npx autoskills ${dim("--dry-run")}            Show what would be installed
     npx autoskills ${dim("--clear-cache")}        Clear downloaded skills cache
+    npx autoskills ${dim("--repos ./projects -y")} Install in Git repositories under a directory
     npx autoskills ${dim("-a cursor claude-code")} Install for specific IDEs only
 
   ${bold("Options:")}
     -y, --yes       Skip confirmation prompt
     --dry-run       Show skills without installing
     --clear-cache   Clear downloaded skills cache
+    --repos <dir>  Process Git repositories directly inside a directory
     -v, --verbose   Show install trace and error details
     -a, --agent     Install for specific IDEs only (e.g. cursor, claude-code, pi)
     -h, --help      Show this help message
@@ -515,7 +524,8 @@ async function selectSkills(
 // ── Main ─────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { command, autoYes, dryRun, verbose, help, clearCache, agents, port, noOpen } = parseArgs();
+  const opts = parseArgs();
+  const { command, help, clearCache, port, noOpen, reposDir } = opts;
 
   if (command && command !== "ui" && command !== "update") {
     log(yellow(`   Unknown command: ${command}`));
@@ -526,6 +536,10 @@ async function main(): Promise<void> {
   if (help) {
     showHelp();
     process.exit(0);
+  }
+
+  if (reposDir !== null && (command === "ui" || clearCache)) {
+    throw new Error("--repos is only supported for install and update");
   }
 
   if (command === "ui") {
@@ -549,10 +563,36 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  if (reposDir !== null) {
+    const parentDir = resolve(reposDir);
+    const repos = findGitRepos(parentDir);
+    if (repos.length === 0) {
+      throw new Error(`No Git repositories found directly inside ${parentDir}`);
+    }
+    for (const projectDir of repos) {
+      log();
+      log(cyan("   ◆ ") + bold(`Repository: ${basename(projectDir)}`) + dim(` (${projectDir})`));
+      try {
+        await runProject(projectDir, opts);
+      } catch (err) {
+        process.exitCode = 1;
+        log(red(`   ✘ ${basename(projectDir)}: ${(err as Error).message}`));
+      }
+    }
+    return;
+  }
+
+  await runProject(resolve("."), opts);
+}
+
+async function runProject(
+  projectDir: string,
+  { command, autoYes, dryRun, verbose, agents }: CliArgs,
+): Promise<void> {
   if (command === "update") {
     log(dim("   Checking installed skills against upstream sources..."));
     const checks = await checkSkillUpdates({
-      projectDir: resolve("."),
+      projectDir,
       onTrace: verbose ? (message) => log(dim(`   ${message}`)) : undefined,
     });
     const outdated = checks.skills.filter((skill) => skill.outdated);
@@ -587,7 +627,7 @@ async function main(): Promise<void> {
     for (const skill of selected) {
       const update = outdated.find((item) => `${item.source.source}/${item.name}` === skill.skill)!;
       const result = await updateSkill(update, agents, {
-        projectDir: resolve("."),
+        projectDir,
         onTrace: verbose ? (message) => log(dim(`   ${message}`)) : undefined,
       });
       if (result.success) {
@@ -605,8 +645,6 @@ async function main(): Promise<void> {
 
   await printBanner(VERSION);
 
-  const projectDir = resolve(".");
-
   write(dim("   Scanning project...\r"));
   const { detected, isFrontend, combos } = detectTechnologies(projectDir);
   write("\x1b[K");
@@ -615,7 +653,7 @@ async function main(): Promise<void> {
     log(yellow("   ⚠ No supported technologies detected."));
     log(dim("   Make sure you run this in a project directory."));
     log();
-    process.exit(0);
+    return;
   }
 
   printDetected(detected, combos, isFrontend);
@@ -628,7 +666,7 @@ async function main(): Promise<void> {
     log(yellow("   No skills available for your stack yet."));
     log(dim("   Check https://autoskills.sh for the latest."));
     log();
-    process.exit(0);
+    return;
   }
 
   if (dryRun) {
@@ -636,7 +674,7 @@ async function main(): Promise<void> {
     log(dim(`   Agents: ${resolvedAgents.join(", ")}`));
     log(dim("   --dry-run: nothing was installed."));
     log();
-    process.exit(0);
+    return;
   }
 
   const selectedSkills = await selectSkills(skills, autoYes);
@@ -653,6 +691,7 @@ async function main(): Promise<void> {
     resolvedAgents,
     {
       verbose,
+      projectDir,
     },
   );
   const elapsed = Date.now() - startTime;

@@ -35,6 +35,22 @@ npx autoskills -y
 npx autoskills --dry-run
 ```
 
+### Process multiple repositories
+
+Use `--repos <directory>` to scan and install skills independently in each Git
+repository directly inside that directory:
+
+```bash
+npx autoskills --repos ~/projects --dry-run
+npx autoskills --repos ~/projects -y
+npx autoskills update --repos ~/projects -y
+```
+
+Both ordinary repositories (with a `.git` directory) and linked Git worktrees
+(with a `.git` file) are supported. Non-repository directories and nested
+repositories are not scanned. Each repository keeps its own `.agents/skills` and
+`skills-lock.json`. Other installation flags apply to every repository.
+
 ### Browse installed skills
 
 ```bash
@@ -68,6 +84,7 @@ Pi skills are linked into `.pi/skills`. The desk discovers both project skills a
 | `-y`, `--yes`     | Skip confirmation prompt, install all detected skills         |
 | `--dry-run`       | Show detected skills without installing anything              |
 | `--clear-cache`   | Clear the downloaded skills cache                             |
+| `--repos <dir>`  | Install or update skills in immediate child Git repositories   |
 | `-a`, `--agent`   | Install for specific IDEs only (e.g. `cursor claude-code pi`) |
 | `-v`, `--verbose` | Show install trace and error details                          |
 | `-h`, `--help`    | Show help message                                             |

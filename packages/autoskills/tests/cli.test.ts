@@ -62,6 +62,44 @@ describe("CLI", () => {
     }
   });
 
+  describe("--repos", () => {
+    const dirs = useTmpDir("autoskills-multi-repo-");
+
+    it("scans each immediate Git repository, including worktrees, without scanning other directories", () => {
+      writeFile(dirs.path, "alpha/.git/HEAD", "ref: refs/heads/main");
+      writePackageJson(join(dirs.path, "alpha"), { dependencies: { react: "19" } });
+      writeFile(dirs.path, "bravo/.git", "gitdir: ../.git/worktrees/bravo");
+      writeFile(dirs.path, "bravo/Cargo.toml", '[package]\nname = "bravo"\nversion = "0.1.0"');
+      writePackageJson(join(dirs.path, "ignored"), { dependencies: { next: "15" } });
+
+      const output = run(["--repos", dirs.path, "--dry-run"], dirs.path);
+      ok(output.includes("Repository: alpha"));
+      ok(output.includes("Repository: bravo"));
+      ok(output.indexOf("Repository: alpha") < output.indexOf("Repository: bravo"));
+      ok(!output.includes("Repository: ignored"));
+      ok(output.includes("React"));
+      ok(output.includes("Rust"));
+      ok(!output.includes("Next.js"));
+      ok(!existsSync(join(dirs.path, "alpha", ".agents")));
+      ok(!existsSync(join(dirs.path, "bravo", ".agents")));
+    });
+
+    it("fails when the directory contains no Git repositories", () => {
+      writePackageJson(join(dirs.path, "plain"), { dependencies: { react: "19" } });
+      throws(
+        () => run(["--repos", dirs.path, "--dry-run"], dirs.path),
+        (error: any) => error.status === 1 && error.stderr.includes("No Git repositories found"),
+      );
+    });
+
+    it("requires a directory argument", () => {
+      throws(
+        () => run(["--repos"], dirs.path),
+        (error: any) => error.status === 1 && error.stderr.includes("--repos requires a directory"),
+      );
+    });
+  });
+
   describe("update", () => {
     function mockSource(files: Record<string, string>): NodeJS.ProcessEnv {
       const helper = new URL("./source-helpers.ts", import.meta.url).href;
@@ -118,6 +156,24 @@ describe("CLI", () => {
         (error: any) => error.status === 1 && error.stdout.includes("not found"),
       );
     });
+    it("checks updates separately for each repository in --repos mode", () => {
+      for (const name of ["one", "two"]) {
+        writeFile(tmp.path, `repos/${name}/.git/HEAD`, "ref: refs/heads/main");
+        writeJson(tmp.path, `repos/${name}/skills-lock.json`, {
+          version: 1,
+          skills: { hello: { source: "owner/repo", sourceType: "autoskills-registry" } },
+        });
+      }
+      const output = run(
+        ["update", "--repos", join(tmp.path, "repos"), "--dry-run"],
+        tmp.path,
+        mockSource({ "skills/hello/SKILL.md": "latest" }),
+      );
+      equal(output.split("hello → aaaaaaa").length - 1, 2);
+      ok(!existsSync(join(tmp.path, "repos", "one", ".agents")));
+      ok(!existsSync(join(tmp.path, "repos", "two", ".agents")));
+    });
+
   });
 
   describe("--dry-run", () => {

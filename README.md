@@ -18,6 +18,20 @@ Scans your project, detects your tech stack, and installs curated AI agent skill
 npx autoskills
 ```
 
+## Multiple repositories
+
+To process each Git repository directly inside a directory, use `--repos`:
+
+```bash
+npx autoskills --repos ~/projects --dry-run
+npx autoskills --repos ~/projects -y
+npx autoskills update --repos ~/projects -y
+```
+
+Repositories are processed separately, with their own installed skills and
+`skills-lock.json`. Directories without a `.git` entry are skipped, including
+non-repository folders. Linked Git worktrees are supported.
+
 ## How it works
 
 1. Run `npx autoskills` in your project root
@@ -50,6 +64,7 @@ Downloads are pinned to a single commit and verified against its Git blob hashes
 -y, --yes       Skip confirmation prompt
 --dry-run       Show what would be installed without installing
 --clear-cache   Clear the downloaded skills cache
+--repos <dir>  Process Git repositories directly inside a directory
 -a, --agent     Install for specific IDEs only (e.g. cursor claude-code pi)
 -v, --verbose   Show install trace and error details
 -h, --help      Show help message
