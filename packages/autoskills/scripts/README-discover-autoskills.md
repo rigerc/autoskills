@@ -7,8 +7,17 @@ This is a **maintainer-only, read-only discovery tool**. It searches [Skills Dir
 From the repository root, with Node.js 22.6+:
 
 ```bash
-node --experimental-strip-types packages/autoskills/scripts/discover-autoskills.mjs --repo-root .
+# Discover skills. If attached to a terminal, open the interactive review UI.
+pnpm --dir packages/autoskills discover:skills
+
+# Require the interactive terminal review (fails clearly without a TTY).
+pnpm --dir packages/autoskills discover:skills:interactive
+
+# Generate JSON and Markdown only (safe for automation / pipes).
+pnpm --dir packages/autoskills discover:skills:batch
 ```
+
+The CLI can also be run directly with `node --experimental-strip-types packages/autoskills/scripts/discover-autoskills.mjs --repo-root .`.
 
 Target selected technologies:
 
@@ -18,7 +27,19 @@ node --experimental-strip-types packages/autoskills/scripts/discover-autoskills.
   --verify-limit 60 --min-score 40
 ```
 
-Run `--help` to see all discovery, pagination, threshold, API URL, and output options. The default outputs are `skills-discovery.json` and `skills-discovery.md` in your working directory.
+Run `--help` to see all discovery, pagination, threshold, API URL, and output options. The default reports are `skills-discovery.json` and `skills-discovery.md` in your working directory.
+
+## Interactive terminal review
+
+When stdin and stdout are TTYs, `discover:skills` automatically presents an interactive, keyboard-controlled result browser **after** writing the normal reports. Force it with `--interactive`, or disable it with `--no-interactive`. In CI or piped commands, the default is non-interactive.
+
+- **Up/Down** (or **j/k**) navigates matched skills; **Enter** shows upstream metadata and the score's matching evidence. Detail text can be scrolled.
+- **/** searches across names, descriptions, category, tags, and scoring evidence. **t** cycles technology matches, **s** cycles registry sources, and **v** shows selected results.
+- **Space** toggles a candidate, **a** selects all currently visible results, and **u** clears the selection.
+- **e** exports the shortlist to `skills-discovery.selected.json` and `skills-discovery.selected.md` (overridable with `--selection-output` and `--selection-markdown`).
+- **?** shows keyboard help; **q** exits without modifying the registry.
+
+Selecting or exporting a skill is **not** approval, installation, or a change to `skills-map.ts`. Exports are intended solely for maintainer review. If terminal review is unavailable, run the batch command and inspect the generated Markdown report.
 
 ## Matching
 
