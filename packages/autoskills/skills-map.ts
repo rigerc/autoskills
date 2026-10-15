@@ -9,6 +9,7 @@ export interface ConfigFileContentBlock {
 
 export interface DetectConfig {
   packages?: string[];
+  pythonPackages?: string[];
   packagePatterns?: RegExp[];
   configFiles?: string[];
   fileExtensions?: string[];
@@ -1139,6 +1140,263 @@ export const SKILLS_MAP: Technology[] = [
     },
     skills: ["affaan-m/everything-claude-code/python-patterns"],
   },
+  // Infrastructure & CI
+  {
+    id: "docker",
+    name: "Docker",
+    detect: {
+      configFiles: [
+        "Dockerfile", "Dockerfile.dev", "Dockerfile.prod",
+        "docker-compose.yml", "docker-compose.yaml",
+        "compose.yml", "compose.yaml",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "github-actions",
+    name: "GitHub Actions",
+    detect: { configFiles: [".github/workflows"] },
+    skills: [],
+  },
+  {
+    id: "kubernetes",
+    name: "Kubernetes",
+    detect: { configFiles: ["kustomization.yaml", "kustomization.yml", "skaffold.yaml"] },
+    skills: [],
+  },
+  {
+    id: "helm",
+    name: "Helm",
+    detect: { configFiles: ["Chart.yaml"] },
+    skills: [],
+  },
+
+  // Data & APIs
+  {
+    id: "mongodb",
+    name: "MongoDB",
+    detect: {
+      packages: ["mongodb", "mongoose"],
+      pythonPackages: ["pymongo", "motor"],
+    },
+    skills: [],
+  },
+  {
+    id: "firebase",
+    name: "Firebase",
+    detect: {
+      packages: ["firebase", "firebase-admin", "firebase-functions"],
+      configFiles: ["firebase.json"],
+    },
+    skills: [],
+  },
+  {
+    id: "convex",
+    name: "Convex",
+    detect: { packages: ["convex"], configFiles: ["convex"] },
+    skills: [],
+  },
+  {
+    id: "redis",
+    name: "Redis",
+    detect: {
+      packages: ["redis", "ioredis", "@upstash/redis"],
+      pythonPackages: ["redis"],
+    },
+    skills: ["redis/agent-skills/redis-core"],
+  },
+  {
+    id: "graphql",
+    name: "GraphQL",
+    detect: {
+      packages: ["graphql", "graphql-request", "graphql-yoga", "@apollo/server"],
+    },
+    skills: [],
+  },
+  {
+    id: "trpc",
+    name: "tRPC",
+    detect: {
+      packages: ["@trpc/server", "@trpc/client", "@trpc/react-query", "@trpc/next", "@trpc/tanstack-react-query"],
+    },
+    skills: [],
+  },
+
+  // Frontend state, data & components
+  {
+    id: "tanstack-query",
+    name: "TanStack Query",
+    detect: {
+      packages: [
+        "@tanstack/react-query", "@tanstack/vue-query",
+        "@tanstack/solid-query", "@tanstack/svelte-query", "@tanstack/query-core",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "zustand",
+    name: "Zustand",
+    detect: { packages: ["zustand"] },
+    skills: [],
+  },
+  {
+    id: "redux",
+    name: "Redux",
+    detect: { packages: ["@reduxjs/toolkit", "redux", "react-redux"] },
+    skills: [],
+  },
+  {
+    id: "solid",
+    name: "SolidJS",
+    detect: { packages: ["solid-js"] },
+    skills: [],
+  },
+  {
+    id: "storybook",
+    name: "Storybook",
+    detect: {
+      packages: ["storybook", "@storybook/react", "@storybook/vue3", "@storybook/nextjs"],
+      packagePatterns: [/^@storybook\//],
+      configFiles: [".storybook"],
+    },
+    skills: [],
+  },
+
+  // Testing & quality
+  {
+    id: "jest",
+    name: "Jest",
+    detect: {
+      packages: ["jest", "@jest/core"],
+      configFiles: [
+        "jest.config.js", "jest.config.cjs", "jest.config.mjs",
+        "jest.config.ts", "jest.config.mts", "jest.config.json",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "cypress",
+    name: "Cypress",
+    detect: {
+      packages: ["cypress"],
+      configFiles: ["cypress.config.js", "cypress.config.cjs", "cypress.config.ts", "cypress.json"],
+    },
+    skills: [],
+  },
+  {
+    id: "eslint",
+    name: "ESLint",
+    detect: {
+      packages: ["eslint"],
+      configFiles: [
+        "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs", "eslint.config.ts",
+        ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yml", ".eslintrc.yaml",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "biome",
+    name: "Biome",
+    detect: {
+      packages: ["@biomejs/biome"],
+      configFiles: ["biome.json", "biome.jsonc"],
+    },
+    skills: [],
+  },
+
+  // AI SDKs
+  {
+    id: "anthropic-sdk",
+    name: "Anthropic SDK",
+    detect: {
+      packages: ["@anthropic-ai/sdk"],
+      pythonPackages: ["anthropic"],
+    },
+    skills: [],
+  },
+  {
+    id: "openai",
+    name: "OpenAI SDK",
+    detect: {
+      packages: ["openai"],
+      pythonPackages: ["openai"],
+    },
+    skills: [],
+  },
+  {
+    id: "langchain",
+    name: "LangChain",
+    detect: {
+      packages: ["langchain"],
+      packagePatterns: [/^@langchain\//],
+      pythonPackages: ["langchain", "langchain-core", "langchain-openai", "langchain-anthropic"],
+    },
+    skills: [],
+  },
+  {
+    id: "mcp-sdk",
+    name: "Model Context Protocol SDK",
+    detect: {
+      packages: ["@modelcontextprotocol/sdk"],
+      pythonPackages: ["mcp"],
+    },
+    skills: [],
+  },
+  {
+    id: "huggingface",
+    name: "Hugging Face",
+    detect: {
+      packages: ["@huggingface/inference", "@huggingface/hub"],
+      pythonPackages: ["huggingface-hub", "transformers"],
+    },
+    skills: [],
+  },
+
+  // Observability
+  {
+    id: "sentry",
+    name: "Sentry",
+    detect: {
+      packagePatterns: [/^@sentry\//],
+      pythonPackages: ["sentry-sdk"],
+    },
+    skills: [],
+  },
+
+  // Languages & build systems
+  {
+    id: "kotlin",
+    name: "Kotlin",
+    detect: {
+      configFileContent: {
+        scanGradleLayout: true,
+        patterns: ["org.jetbrains.kotlin", 'kotlin("jvm")', 'kotlin("android")', 'kotlin("multiplatform")'],
+      },
+    },
+    skills: [],
+  },
+  {
+    id: "swift",
+    name: "Swift",
+    detect: { configFiles: ["Package.swift"] },
+    skills: ["avdlee/swift-concurrency-agent-skill/swift-concurrency"],
+  },
+  {
+    id: "elixir",
+    name: "Elixir",
+    detect: { configFiles: ["mix.exs"] },
+    skills: [],
+  },
+  {
+    id: "cpp",
+    name: "C++",
+    detect: { configFiles: ["CMakeLists.txt"] },
+    skills: [],
+  },
 ];
 
 // ── Combo Skills Map (cross-technology) ──────────────────────
@@ -1298,6 +1556,60 @@ export const COMBO_SKILLS_MAP: ComboSkill[] = [
     id: "rails-sidekiq",
     name: "Ruby on Rails + Sidekiq",
     requires: ["rails", "sidekiq"],
+    skills: [],
+  },
+  {
+    id: "react-tanstack-query",
+    name: "React + TanStack Query",
+    requires: ["react", "tanstack-query"],
+    skills: [],
+  },
+  {
+    id: "react-zustand",
+    name: "React + Zustand",
+    requires: ["react", "zustand"],
+    skills: [],
+  },
+  {
+    id: "nextjs-trpc",
+    name: "Next.js + tRPC",
+    requires: ["nextjs", "trpc"],
+    skills: [],
+  },
+  {
+    id: "nextjs-prisma",
+    name: "Next.js + Prisma",
+    requires: ["nextjs", "prisma"],
+    skills: [],
+  },
+  {
+    id: "nextjs-drizzle",
+    name: "Next.js + Drizzle",
+    requires: ["nextjs", "drizzle"],
+    skills: [],
+  },
+  {
+    id: "fastapi-sqlalchemy",
+    name: "FastAPI + SQLAlchemy",
+    requires: ["fastapi", "sqlalchemy"],
+    skills: [],
+  },
+  {
+    id: "django-celery",
+    name: "Django + Celery",
+    requires: ["django", "celery"],
+    skills: [],
+  },
+  {
+    id: "docker-node",
+    name: "Docker + Node.js",
+    requires: ["docker", "node"],
+    skills: [],
+  },
+  {
+    id: "docker-python",
+    name: "Docker + Python",
+    requires: ["docker", "python"],
     skills: [],
   },
 ];
