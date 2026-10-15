@@ -36,7 +36,10 @@
     "validate:registry": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/validate-registry.mjs",
     "prepublishOnly": "pnpm run validate:registry",
     "release": "node scripts/release.mjs",
-    "sync:skills": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/sync-skills.mjs"
+    "sync:skills": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/sync-skills.mjs",
+    "discover:skills": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs",
+    "discover:skills:interactive": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs --interactive",
+    "discover:skills:batch": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs --no-interactive"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "0.133.0",

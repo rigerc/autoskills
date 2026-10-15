@@ -78,3 +78,16 @@ if(code===0) {
 } else throw new Error(`Discovery CLI failed (${code}): ${err}\n${out}`);
 
 });
+
+test('forced interactive mode exits with guidance when no TTY is attached', async () => {
+  const file = new URL('../scripts/discover-autoskills.mjs', import.meta.url).pathname;
+  const child = spawn(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', file, '--interactive'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  const code = await new Promise(resolve => child.on('exit', resolve));
+  if (code === 0 || !stderr.includes('TTY')) {
+    throw new Error(`Expected a non-TTY interactive error, got status ${code}: ${stderr}`);
+  }
+});
