@@ -166,6 +166,7 @@ async function jsonFetch(url,{token='',verbose=false,kind='directory'}={}) {
   if (token) headers.Authorization=`Bearer ${token}`;
   if (kind==='github') headers['X-GitHub-Api-Version']='2022-11-28';
   for (let attempt=0;attempt<3;attempt++) {
+    discoveryCache?.stats && discoveryCache.stats.networkRequests++;
     if(verbose) console.error(`GET ${url}`);
     let res;
     try { res=await fetch(url,{headers,signal:AbortSignal.timeout(25000)}); }
@@ -885,7 +886,7 @@ async function main() {
   outputFile(opts.output,JSON.stringify(report,null,2));
   outputFile(opts.markdown,markdownReport(report,opts));
   console.error(`Done: ${report.stats.uniqueDirectorySkills} Skills Directory entries + ${report.stats.uniqueSkillsMdRepos} SkillsMD repos; ${candidates.length} matched entries; ${final.length} new GitHub-verified SKILL.md paths.`);
-  console.error(`Cache: ${discoveryCache.stats.hits} hits, ${discoveryCache.stats.misses} misses, ${discoveryCache.stats.writes} writes (${discoveryCache.enabled ? discoveryCache.dir : 'disabled'}).`);
+  console.error(`Cache: ${discoveryCache.stats.hits} hits, ${discoveryCache.stats.misses} misses, ${discoveryCache.stats.networkRequests} HTTP attempts, ${discoveryCache.stats.writes} writes (${discoveryCache.enabled ? discoveryCache.dir : 'disabled'}).`);
   if (opts.interactive==='on' || (opts.interactive==='auto' && process.stdin.isTTY && process.stdout.isTTY && opts.output!=='-' && opts.markdown!=='-')) {
     await interactiveReview(report,opts);
   }
