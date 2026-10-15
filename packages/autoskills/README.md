@@ -76,105 +76,61 @@ Pi skills are linked into `.pi/skills`. The desk discovers both project skills a
 
 ## Supported Technologies
 
-`autoskills` detects **50+ technologies** from your `package.json`, lockfiles, Gradle files, and config files:
+`autoskills` detects **123 technologies** and **33 technology combos** from `package.json`, project manifests, Gradle files, and configuration files. The following table covers every technology in `SKILLS_MAP`, including Rails, Django, FastAPI, and pytest.
 
-### Frameworks & Libraries
+| Category | Technologies |
+| --- | --- |
+| Frontend frameworks | React, Next.js, Vue, Nuxt, Pinia, Svelte, Angular, Astro, React Router, TanStack Start, SolidJS |
+| Styling, state & UI | Tailwind CSS, shadcn/ui, React Hook Form, Zod, TanStack Query, Zustand, Redux, Storybook, GSAP, Three.js, React Three Fiber |
+| Languages & runtimes | TypeScript, Node.js, Bun, Dart, Go, Bash, Java, Rust, Ruby, PHP, Python, .NET, C#, Kotlin, Swift, Elixir, C++ |
+| Backend frameworks & APIs | Express, Hono, NestJS, Spring Boot, ASP.NET Core, Blazor, ASP.NET Minimal API, Ruby on Rails, Laravel, FastAPI, FastMCP, Django, Flask, Elysia, GraphQL, tRPC, WordPress |
+| Mobile, desktop & extensions | Expo, React Native, Flutter, Kotlin Multiplatform, Android, SwiftUI, Tauri, Electron, Chrome Extension |
+| Databases, data & ORM | Supabase, Neon Postgres, InstantDB, Prisma, Drizzle ORM, MongoDB, Firebase, Convex, Redis, Redis (Ruby), PostgreSQL, Pydantic, SQLAlchemy, Pandas, NumPy, Scikit-Learn |
+| Ruby ecosystem | Sorbet, ActiveAdmin, Devise, Sidekiq, RSpec, RuboCop |
+| Python ecosystem | Celery, Requests |
+| Cloud, CI & infrastructure | Vercel, Cloudflare, Durable Objects, Cloudflare Agents, Cloudflare AI, Terraform, AWS, Azure, Docker, Kubernetes, Helm, GitHub Actions |
+| Testing & quality | Playwright, Vitest, Jest, Cypress, ESLint, Biome, oxlint, Pytest |
+| Authentication & payments | Clerk, Better Auth, Stripe |
+| AI SDKs & observability | Vercel AI SDK, ElevenLabs, Anthropic SDK, OpenAI SDK, LangChain, Model Context Protocol SDK, Hugging Face, Sentry |
+| Build tooling & media | Turborepo, Vite, Remotion |
 
-| Technology           | Detected from                                                                                                                                     |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| React                | `react`, `react-dom` packages                                                                                                                     |
-| Next.js              | `next` package or `next.config.*`                                                                                                                 |
-| Vue                  | `vue` package                                                                                                                                     |
-| Nuxt                 | `nuxt` package or `nuxt.config.*`                                                                                                                 |
-| Svelte               | `svelte`, `@sveltejs/kit` or `svelte.config.js`                                                                                                   |
-| Angular              | `@angular/core` or `angular.json`                                                                                                                 |
-| Astro                | `astro` package or `astro.config.*`                                                                                                               |
-| Expo                 | `expo` package                                                                                                                                    |
-| React Native         | `react-native` package                                                                                                                            |
-| Flutter              | `pubspec.yaml` file with `flutter:` key                                                                                                           |
-| Kotlin Multiplatform | Gradle with KMP plugin: `kotlin("multiplatform")`, `org.jetbrains.kotlin.multiplatform`, or `kotlin-multiplatform` in `gradle/libs.versions.toml` |
-| Android              | Gradle with `com.android.application`, `com.android.library`, or `com.android.kotlin.multiplatform.library`                                       |
-| Remotion             | `remotion`, `@remotion/cli`                                                                                                                       |
-| GSAP                 | `gsap` package                                                                                                                                    |
-| Three.js             | `three`, `@react-three/fiber`, `@react-three/drei`                                                                                                |
-| Express              | `express` package                                                                                                                                 |
-| Hono                 | `hono` package                                                                                                                                    |
-| NestJS               | `@nestjs/core` package                                                                                                                            |
-| Spring Boot          | Gradle with `spring-boot-starter` or `org.springframework.boot`                                                                                   |
-| ASP.NET Core         | `.csproj` file with `Microsoft.NET.Sdk.Web`                                                                                                       |
-| Blazor               | `.csproj` with `Microsoft.NET.Sdk.BlazorWebAssembly` or `Microsoft.AspNetCore.Components`                                                         |
-| ASP.NET Minimal API  | `.csproj` with `Microsoft.AspNetCore.OpenApi` or `Swashbuckle.AspNetCore`                                                                         |
+### Expanded detection signals
 
-### Styling & UI
+| Technology | Detected from |
+| --- | --- |
+| Docker | `Dockerfile`, `Dockerfile.dev`, `Dockerfile.prod`, `docker-compose.yml`/`.yaml`, `compose.yml`/`.yaml` |
+| GitHub Actions | `.github/workflows/` directory |
+| Kubernetes | `kustomization.yaml`, `kustomization.yml`, `skaffold.yaml` |
+| Helm | `Chart.yaml` |
+| MongoDB | `mongodb`, `mongoose`; Python `pymongo`, `motor` |
+| Firebase | `firebase`, `firebase-admin`, `firebase-functions`, `firebase.json` |
+| Convex | `convex` package or `convex/` directory |
+| Redis | `redis`, `ioredis`, `@upstash/redis`; Python `redis` |
+| GraphQL | `graphql`, `graphql-request`, `graphql-yoga`, `@apollo/server` |
+| tRPC | `@trpc/server`, `@trpc/client`, `@trpc/react-query`, `@trpc/next`, `@trpc/tanstack-react-query` |
+| TanStack Query | `@tanstack/react-query`, `@tanstack/vue-query`, `@tanstack/solid-query`, `@tanstack/svelte-query`, `@tanstack/query-core` |
+| Zustand | `zustand` |
+| Redux | `@reduxjs/toolkit`, `redux`, `react-redux` |
+| SolidJS | `solid-js` |
+| Storybook | `@storybook/*` or `.storybook/` directory |
+| Jest | `jest`, `@jest/core` or `jest.config.*` (supported extensions) |
+| Cypress | `cypress`, `cypress.config.*`, `cypress.json` |
+| ESLint | `eslint`, `eslint.config.*`, `.eslintrc*` |
+| Biome | `@biomejs/biome`, `biome.json`, `biome.jsonc` |
+| Anthropic SDK | `@anthropic-ai/sdk`; Python `anthropic` |
+| OpenAI SDK | `openai` package in JS or Python |
+| LangChain | `langchain`, `@langchain/*`; Python LangChain distributions |
+| Model Context Protocol SDK | `@modelcontextprotocol/sdk`; Python `mcp` |
+| Hugging Face | `@huggingface/inference`, `@huggingface/hub`; Python `huggingface-hub`, `transformers` |
+| Sentry | `@sentry/*`; Python `sentry-sdk` |
+| Kotlin | Kotlin Gradle plugin declaration (root or recognized module Gradle files) |
+| Swift | `Package.swift` |
+| Elixir | `mix.exs` |
+| C++ | `CMakeLists.txt` |
 
-| Technology   | Detected from                                             |
-| ------------ | --------------------------------------------------------- |
-| Tailwind CSS | `tailwindcss`, `@tailwindcss/vite` or `tailwind.config.*` |
-| shadcn/ui    | `components.json`                                         |
+Python SDK matching reads declared dependencies in `requirements.txt`, `pyproject.toml` (project, optional, dependency groups and Poetry), and `Pipfile`. Package names are matched as complete names, so `other-anthropic-sdk` will not be mistaken for the Anthropic SDK. Directory detection uses project-relative existence checks.
 
-### Runtimes & Tooling
-
-| Technology | Detected from                                                |
-| ---------- | ------------------------------------------------------------ |
-| TypeScript | `typescript` package or `tsconfig.json`                      |
-| Node.js    | `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `.nvmrc` |
-| Bun        | `bun.lockb`, `bun.lock`, `bunfig.toml`                       |
-| Dart       | `pubspec.yaml`                                               |
-| Go         | `go.mod`, `go.work`                                          |
-| Vite       | `vite` package or `vite.config.*`                            |
-| Turborepo  | `turbo` package or `turbo.json`                              |
-| Vitest     | `vitest` package or `vitest.config.*`                        |
-| oxlint     | `oxlint` package or `.oxlintrc.json`                         |
-| .NET       | `global.json`, `NuGet.Config`, `*.csproj`, `*.sln`           |
-| C#         | `*.csproj`, `*.sln`                                          |
-
-### Backend & Data
-
-| Technology      | Detected from                                            |
-| --------------- | -------------------------------------------------------- |
-| Supabase        | `@supabase/supabase-js`, `@supabase/ssr`                 |
-| Zod             | `zod` package                                            |
-| React Hook Form | `react-hook-form` package                                |
-| Neon Postgres   | `@neondatabase/serverless`                               |
-| Prisma          | `prisma`, `@prisma/client`                               |
-| Drizzle ORM     | `drizzle-orm`, `drizzle-kit`                             |
-| Stripe          | `stripe`, `@stripe/stripe-js`, `@stripe/react-stripe-js` |
-| Better Auth     | `better-auth` package                                    |
-
-### Authentication
-
-| Technology | Detected from                                                                                                         |
-| ---------- | --------------------------------------------------------------------------------------------------------------------- |
-| Clerk      | `@clerk/nextjs`, `@clerk/react`, `@clerk/expo`, `@clerk/astro`, `@clerk/remix`, `@clerk/vue`, or any `@clerk/*` scope |
-
-### Cloud & Deploy
-
-| Technology        | Detected from                                        |
-| ----------------- | ---------------------------------------------------- |
-| Vercel            | `vercel.json`, `.vercel/`, `@astrojs/vercel`         |
-| Cloudflare        | `wrangler`, `wrangler.toml`, `@astrojs/cloudflare`   |
-| Cloudflare Agents | `agents` package                                     |
-| Cloudflare AI     | `@cloudflare/ai` or AI binding in `wrangler.json`    |
-| Durable Objects   | `durable_objects` in `wrangler.json`/`wrangler.toml` |
-| Azure             | `@azure/*` packages                                  |
-| AWS               | `@aws-sdk/*`, `aws-cdk*` packages                    |
-
-### AI
-
-| Technology    | Detected from                                                 |
-| ------------- | ------------------------------------------------------------- |
-| Vercel AI SDK | `ai`, `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google` |
-| ElevenLabs    | `elevenlabs` package                                          |
-
-### Other
-
-| Technology | Detected from                                                                               |
-| ---------- | ------------------------------------------------------------------------------------------- |
-| Playwright | `@playwright/test`, `playwright` or `playwright.config.*`                                   |
-| SwiftUI    | `Package.swift`                                                                             |
-| WordPress  | `wp-config.php`, `@wordpress/*`, `composer.json` with wpackagist, theme `style.css`         |
-| Tauri      | `@tauri-apps/api`, `@tauri-apps/cli` or `src-tauri/tauri.conf.json`                         |
-| Electron   | `electron` package, `electron-builder.yml`, `forge.config.js`, or `electron-vite.config.ts` |
+The map can detect a technology without installing a skill: **new entries without a verified, synced upstream skill have an empty `skills` list**. Redis and Swift reuse existing registered skills. New combo entries are currently detection-only until a suitable upstream skill is verified and synced.
 
 ### Web Frontend Detection
 
@@ -182,18 +138,43 @@ Even without a framework, `autoskills` scans your file tree for web frontend sig
 
 ## Combo Detection
 
-When multiple technologies are used together, `autoskills` detects **technology combos** and adds specialized skills for the combination:
+When multiple technologies are found together, the following **33 combinations** are detected. Combos select specialist skills when their `skills` lists are populated; the newly added combos do not yet introduce extra downloads.
 
-- **Next.js + Supabase** — Supabase Postgres best practices for Next.js
-- **Next.js + Vercel AI SDK** — AI SDK patterns with Next.js
-- **Next.js + Playwright** — E2E testing best practices for Next.js
-- **React + shadcn/ui** — shadcn component patterns with React
-- **Tailwind CSS + shadcn/ui** — Tailwind v4 + shadcn integration
-- **React Native + Expo** — Native UI patterns
-- **React Hook Form + Zod** — Form validation patterns with Zod schemas
-- **GSAP + React** — GSAP animation patterns in React
-- **Cloudflare + Vite** — Vinext migration guide
-- **Node.js + Express** — Express server patterns
+| Combination | Required technologies |
+| --- | --- |
+| React Hook Form + Zod | React Hook Form + Zod |
+| Next.js + Supabase | Next.js + Supabase |
+| React Native + Expo | React Native + Expo |
+| Next.js + Vercel AI SDK | Next.js + Vercel AI SDK |
+| Next.js + Playwright | Next.js + Playwright |
+| React + shadcn/ui | React + shadcn/ui |
+| Tailwind CSS + shadcn/ui | Tailwind CSS + shadcn/ui |
+| GSAP + React | GSAP + React |
+| Cloudflare + Vite | Cloudflare + Vite |
+| Node.js + Express | Node.js + Express |
+| Next.js + Clerk | Next.js + Clerk |
+| Nuxt + Clerk | Nuxt + Clerk |
+| Vue + Clerk | Vue + Clerk |
+| React + Clerk | React + Clerk |
+| Astro + Clerk | Astro + Clerk |
+| Expo + Clerk | Expo + Clerk |
+| React + React Three Fiber | Three.js + React + React Three Fiber |
+| React Router + Clerk | React Router + Clerk |
+| TanStack Start + Clerk | TanStack Start + Clerk |
+| Chrome Extension + Clerk | Chrome Extension + Clerk |
+| SwiftUI + Clerk | SwiftUI + Clerk |
+| Android + Clerk | Android + Clerk |
+| Ruby on Rails + RSpec | Ruby on Rails + RSpec |
+| Ruby on Rails + Sidekiq | Ruby on Rails + Sidekiq |
+| React + TanStack Query | React + TanStack Query |
+| React + Zustand | React + Zustand |
+| Next.js + tRPC | Next.js + tRPC |
+| Next.js + Prisma | Next.js + Prisma |
+| Next.js + Drizzle | Next.js + Drizzle ORM |
+| FastAPI + SQLAlchemy | FastAPI + SQLAlchemy |
+| Django + Celery | Django + Celery |
+| Docker + Node.js | Docker + Node.js |
+| Docker + Python | Docker + Python |
 
 ## How It Works
 
