@@ -20,7 +20,7 @@ export function createDiscoveryCache({
   // Always operate below a fixed child; --clear-cache cannot remove the
   // provided cache root or unrelated files there.
   const dir=join(resolve(cacheDir), 'discovery-v1');
-  const stats={hits:0,misses:0,writes:0,expired:0,errors:0,skipped:0};
+  const stats={hits:0,misses:0,writes:0,expired:0,errors:0,skipped:0,networkRequests:0};
   if(clear && existsSync(dir)) rmSync(dir,{recursive:true,force:true});
   const active=enabled && ttlMinutes>0;
   function key(url,kind,token) {
