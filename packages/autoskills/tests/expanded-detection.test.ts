@@ -79,7 +79,7 @@ describe("expanded technology detection", () => {
       "[project]",
       'description = "mentions anthropic but is not a dependency"',
       "dependencies = [",
-      '  "anthropic>=0.5",',
+      '  "anthropic[bedrock]>=0.5",',
       '  "openai>=1.0",',
       '  "sentry-sdk>=2.0",',
       "]",
