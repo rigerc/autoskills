@@ -439,7 +439,7 @@ export function readPythonPackageNames(dir: string): string[] {
         }
         if (inArray) {
           addQuotedSpecs(line.split(/\s+#/)[0]);
-          if (line.includes("]")) inArray = false;
+          if (/\]\s*(?:#.*)?$/.test(line)) inArray = false;
         }
       } else if (
         section === "packages" ||
