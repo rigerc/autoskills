@@ -486,7 +486,7 @@ async function verify(entries,opts,existing) {
           (directory?'/'+directory.split('/').map(encodeURIComponent).join('/'):'' );
         const evidence=items.map(item=>({
           source:item.source,skill:item.skill,notes:item.notes,skillPath:path,
-          skillName,directoryPath:directory,githubUrl,matches,score:matches[0].score,
+          skillName,directoryPath:directory,githubUrl,skillBlobSha:tree.blobs.get(directory),matches,score:matches[0].score,
           confidence:'GitHub SKILL.md blob and frontmatter verified',
         }));
         if(prev) {
@@ -511,7 +511,7 @@ function markdownReport(report,opts) {
     '# AutoSkills — registry skill discoveries','',
     `Generated: ${report.generatedAt}`,'',
     `Mapped **${report.stats.technologies}** technologies. Skills Directory: **${report.stats.directoryRequests}** requests / **${report.stats.uniqueDirectorySkills}** entries. SkillsMD: **${report.stats.skillsmdRequests}** requests / **${report.stats.uniqueSkillsMdRepos}** repository entries.`,
-    `Resolved **${report.matches.length}** new, non-colliding SKILL.md paths using GitHub (at most ${opts.verifyLimit} ranked verification attempts).`,'',
+    `Resolved **${report.matches.length}** new, non-colliding SKILL.md paths using GitHub (at most ${opts.verifyLimit} unique repository verification attempts).`,'',
     '**These are suggestions, not installed or security-approved skills.** Review every upstream file and license before editing `skills-map.ts`.','',
   ];
   const grouped=new Map();
@@ -528,7 +528,9 @@ function markdownReport(report,opts) {
       lines.push(`- **\`${item.skillPath}\`** — score **${match.score}**; sources: **${item.sources.join(', ')}**`);
       if(d?.description) lines.push(`  - Directory: ${safeText(d.name)} — ${safeText(d.description).slice(0,260)}`);
       if(sm?.description) lines.push(`  - SkillsMD repository: ${safeText(sm.name)} — ${safeText(sm.description).slice(0,260)}`);
+      lines.push(`  - Relevance: **${match.relevanceScore}**; quality: **${match.qualityScore}** (tie-breaker)`);
       lines.push(`  - Evidence: ${safeText(match.reasons.join('; '))}`);
+      if(item.skillBlobSha) lines.push(`  - Verified SKILL.md Git blob: \`${item.skillBlobSha}\``);
       const links=[`[SKILL.md directory](${item.githubUrl})`];
       if(d?.slug) links.push(`[Skills Directory](https://www.skillsdirectory.com/api/registry/${encodeURIComponent(d.slug)})`);
       if(sm?.repository) links.push(`[SkillsMD](https://skillsmd.dev/api/skill?repo=${encodeURIComponent(sm.repository)})`);
@@ -836,7 +838,8 @@ async function main() {
     };
     return {
       skillPath:item.skillPath,skillName:item.skillName,directoryPath:item.directoryPath,
-      githubUrl:item.githubUrl,confidence:item.confidence,sources:unique(item.sources),
+      githubUrl:item.githubUrl,skillBlobSha:item.skillBlobSha,
+      confidence:item.confidence,sources:unique(item.sources),
       score:item.score,matches:item.matches,directory,skillsmd,
       notes:unique(item.evidence.flatMap(e=>e.notes)),
     };
