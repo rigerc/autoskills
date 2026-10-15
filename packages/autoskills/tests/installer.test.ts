@@ -1,685 +1,213 @@
 import { describe, it } from "node:test";
 import { ok, equal, deepEqual } from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readlinkSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   agentFolderFor,
   installAll,
   installSkill,
+  readSkillsLock,
   securityCheckForSkillPath,
-  verifyRegistryEntry,
-  _setRegistryDir,
 } from "../installer.ts";
-import type { RegistryEntry } from "../installer.ts";
-import { useTmpDir } from "./helpers.ts";
+import { resolveSourceSkill } from "../source.ts";
+import { useTmpDir, writeFile, writeJson } from "./helpers.ts";
+import { COMMIT, sourceFixture } from "./source-helpers.ts";
 
-const PACKAGE_VERSION = JSON.parse(
-  readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
-).version as string;
+const source = "owner/repo/hello";
 
-function sha256(buf: string | Buffer): string {
-  return createHash("sha256").update(buf).digest("hex");
-}
-
-function bundleHashOf(entry: { files: string[]; sha256: Record<string, string> }): string {
-  return sha256(
-    entry.files
-      .map((f) => `${f}:${entry.sha256[f]}`)
-      .sort()
-      .join("\n"),
-  );
-}
-
-interface FakeSkill {
-  name: string;
-  source: string;
-  files: Record<string, string>;
-  review?: RegistryEntry["review"];
-  securityCheck?: RegistryEntry["securityCheck"];
-}
-
-function buildRegistry(dir: string, skills: FakeSkill[]): void {
-  mkdirSync(dir, { recursive: true });
-  const manifest: Record<string, unknown> = {
-    version: 1,
-    generatedAt: new Date().toISOString(),
-    reviewer: { model: "test-model", promptVersion: "1.0.0" },
-    skills: {} as Record<string, RegistryEntry>,
-  };
-  for (const skill of skills) {
-    const shaMap: Record<string, string> = {};
-    for (const [rel, content] of Object.entries(skill.files)) {
-      const p = join(dir, skill.name, rel);
-      mkdirSync(join(dir, skill.name, rel.split("/").slice(0, -1).join("/") || "."), {
-        recursive: true,
-      });
-      writeFileSync(p, content);
-      shaMap[rel] = sha256(content);
-    }
-    const entry: RegistryEntry = {
-      source: skill.source,
-      skillPath: `${skill.source}/${skill.name}`,
-      commitSha: "deadbeef",
-      files: Object.keys(skill.files).sort(),
-      sha256: shaMap,
-      bundleHash: bundleHashOf({ files: Object.keys(skill.files).sort(), sha256: shaMap }),
-      review: skill.review || {
-        status: "approved",
-        flags: [],
-        summary: "test",
-        model: "test-model",
-        promptVersion: "1.0.0",
-        reviewedAt: new Date().toISOString(),
-      },
-      securityCheck: skill.securityCheck,
-    };
-    (manifest.skills as Record<string, RegistryEntry>)[skill.name] = entry;
-  }
-  writeFileSync(join(dir, "index.json"), JSON.stringify(manifest, null, 2));
-}
-
-function fetchFromRegistry(regDir: string): typeof fetch {
-  return (async (url: string | URL | Request) => {
-    const href = typeof url === "string" || url instanceof URL ? String(url) : url.url;
-    const pathname = new URL(href).pathname;
-    const marker = "/skills-registry/";
-    const idx = pathname.indexOf(marker);
-    if (idx === -1) {
-      return new Response("not found", { status: 404, statusText: "Not Found" });
-    }
-    const rel = decodeURIComponent(pathname.slice(idx + marker.length));
-    const filePath = join(regDir, ...rel.split("/"));
-    if (!existsSync(filePath)) {
-      return new Response("not found", { status: 404, statusText: "Not Found" });
-    }
-    return new Response(readFileSync(filePath));
-  }) as typeof fetch;
-}
-
-describe("agentFolderFor", () => {
-  it("maps claude-code to .claude", () => {
-    equal(agentFolderFor("claude-code"), ".claude");
-  });
-  it("maps junie to .junie", () => {
-    equal(agentFolderFor("junie"), ".junie");
-  });
-  it("maps codebuddy to .codebuddy", () => {
-    equal(agentFolderFor("codebuddy"), ".codebuddy");
-  });
-  it("does not map codex to a legacy .codex folder", () => {
-    equal(agentFolderFor("codex"), null);
-  });
-  it("returns null for unknown agents", () => {
-    equal(agentFolderFor("nope"), null);
-  });
-});
-
-describe("verifyRegistryEntry", () => {
+describe("upstream installer", () => {
   const tmp = useTmpDir();
 
-  it("returns ok when hashes match", () => {
-    const regDir = join(tmp.path, "registry");
-    buildRegistry(regDir, [
-      { name: "my-skill", source: "owner/repo", files: { "SKILL.md": "# hi" } },
-    ]);
-    _setRegistryDir(regDir);
-    const manifest = JSON.parse(readFileSync(join(regDir, "index.json"), "utf-8"));
-    const verdict = verifyRegistryEntry("my-skill", manifest.skills["my-skill"], regDir);
-    ok(verdict.ok);
-  });
-
-  it("detects tampered file via hash mismatch", () => {
-    const regDir = join(tmp.path, "registry");
-    buildRegistry(regDir, [
-      { name: "my-skill", source: "owner/repo", files: { "SKILL.md": "# hi" } },
-    ]);
-    writeFileSync(join(regDir, "my-skill", "SKILL.md"), "# tampered");
-    _setRegistryDir(regDir);
-    const manifest = JSON.parse(readFileSync(join(regDir, "index.json"), "utf-8"));
-    const verdict = verifyRegistryEntry("my-skill", manifest.skills["my-skill"], regDir);
-    ok(!verdict.ok);
-    ok(verdict.reason?.includes("hash mismatch"));
-  });
-
-  it("detects missing file listed in manifest", () => {
-    const regDir = join(tmp.path, "registry");
-    buildRegistry(regDir, [
-      { name: "my-skill", source: "owner/repo", files: { "SKILL.md": "# hi" } },
-    ]);
-    _setRegistryDir(regDir);
-    const manifest = JSON.parse(readFileSync(join(regDir, "index.json"), "utf-8"));
-    const entry = manifest.skills["my-skill"];
-    entry.files.unshift("references/MISSING.md");
-    entry.sha256["references/MISSING.md"] = "0".repeat(64);
-    const verdict = verifyRegistryEntry("my-skill", entry, regDir);
-    ok(!verdict.ok);
-    ok(verdict.reason?.includes("missing"));
-  });
-});
-
-describe("installSkill", () => {
-  const tmp = useTmpDir();
-
-  it("copies files to .agents/skills/<name> and updates lock", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      {
-        name: "hello-skill",
-        source: "owner/repo",
-        files: { "SKILL.md": "# hello", "references/notes.md": "notes" },
-      },
-    ]);
-    _setRegistryDir(regDir);
-
-    const result = await installSkill("owner/repo/hello-skill", [], {
-      projectDir,
-      registryDir: regDir,
-      registryBaseUrl: "https://example.test/skills-registry",
-      fetchImpl: fetchFromRegistry(regDir),
+  it("installs directly from upstream, records provenance and preserves executable scripts", async () => {
+    const fixture = sourceFixture({
+      "skills/hello/SKILL.md": "# Latest upstream",
+      "skills/hello/references/notes.md": "notes",
+      "skills/hello/scripts/run.sh": "#!/bin/sh\nexit 0\n",
+      "skills/other/SKILL.md": "# Other",
     });
-
+    writeFile(tmp.path, "CLAUDE.md", "# User instructions\n");
+    const result = await installSkill(source, ["universal", "pi", "claude-code"], {
+      projectDir: tmp.path,
+      ...fixture,
+    });
     ok(result.success, result.output);
-    ok(existsSync(join(projectDir, ".agents", "skills", "hello-skill", "SKILL.md")));
-    ok(existsSync(join(projectDir, ".agents", "skills", "hello-skill", "references", "notes.md")));
-
-    const lock = JSON.parse(readFileSync(join(projectDir, "skills-lock.json"), "utf-8"));
-    equal(lock.skills["hello-skill"].source, "owner/repo");
-    equal(lock.skills["hello-skill"].sourceType, "autoskills-registry");
-    ok(typeof lock.skills["hello-skill"].computedHash === "string");
+    const installed = join(tmp.path, ".agents", "skills", "hello");
+    equal(readFileSync(join(installed, "SKILL.md"), "utf-8"), "# Latest upstream");
+    equal(readFileSync(join(installed, "references", "notes.md"), "utf-8"), "notes");
+    ok(statSync(join(installed, "scripts", "run.sh")).mode & 0o111);
+    ok(!existsSync(join(tmp.path, ".agents", "skills", "other")));
+    equal(readlinkSync(join(tmp.path, ".pi", "skills", "hello")), "../../.agents/skills/hello");
+    const entry = readSkillsLock(tmp.path).skills.hello;
+    equal(entry.source, "owner/repo");
+    equal(entry.sourceType, "github");
+    equal(entry.commitSha, COMMIT);
+    equal(entry.skillPath, "skills/hello");
+    equal(entry.sourceHash?.length, 64);
+    equal(entry.computedHash?.length, 64);
+    equal(result.securityCheck, undefined);
+    equal(securityCheckForSkillPath(source), null);
+    equal(readFileSync(join(tmp.path, "CLAUDE.md"), "utf-8"), "# User instructions\n");
+    ok(
+      fixture.requests
+        .filter((url) => url.includes("raw.githubusercontent.com"))
+        .every((url) => url.includes(`/owner/repo/${COMMIT}/`)),
+    );
   });
 
-  it("returns the persisted security check after installing a skill", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      {
-        name: "warning-skill",
-        source: "owner/repo",
-        files: { "SKILL.md": "# warning" },
-        securityCheck: {
-          status: "warning",
-          findings: ["external URL needs review"],
-          summary: "External URLs should be reviewed.",
-          checkedAt: new Date().toISOString(),
-        },
-      },
-    ]);
-    _setRegistryDir(regDir);
-
-    const result = await installSkill("owner/repo/warning-skill", [], {
-      projectDir,
-      registryDir: regDir,
-    });
-
+  it("does not use installed or locally synced files as a source", async () => {
+    writeFile(tmp.path, ".agents/skills/hello/SKILL.md", "# stale");
+    const fixture = sourceFixture({ "skills/hello/SKILL.md": "# latest" });
+    const result = await installSkill(source, [], { projectDir: tmp.path, ...fixture });
     ok(result.success, result.output);
-    deepEqual(result.securityCheck, {
-      name: "warning-skill",
-      status: "warning",
-      summary: "External URLs should be reviewed.",
-      findings: ["external URL needs review"],
-    });
+    equal(readFileSync(join(tmp.path, ".agents/skills/hello/SKILL.md"), "utf-8"), "# latest");
+    ok(fixture.requests.some((url) => url.includes("raw.githubusercontent.com/owner/repo/")));
   });
 
-  it("falls back to review metadata when securityCheck is missing", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      {
-        name: "review-skill",
-        source: "owner/repo",
-        files: { "SKILL.md": "# review" },
-        review: {
-          status: "flagged",
-          flags: ["broad shell command"],
-          summary: "Contains a broad shell command.",
-          model: "test-model",
-          promptVersion: "1.0.0",
-          reviewedAt: new Date().toISOString(),
-        },
-      },
-    ]);
-    _setRegistryDir(regDir);
-
-    const result = await installSkill("owner/repo/review-skill", [], {
-      projectDir,
-      registryDir: regDir,
-    });
-
+  it("installs root-level skills with supporting files", async () => {
+    const fixture = sourceFixture({ "SKILL.md": "# Root", "references/notes.md": "root notes" });
+    const result = await installSkill(source, [], { projectDir: tmp.path, ...fixture });
     ok(result.success, result.output);
-    deepEqual(result.securityCheck, {
-      name: "review-skill",
-      status: "warning",
-      summary: "Contains a broad shell command.",
-      findings: ["broad shell command"],
-    });
+    equal(
+      readFileSync(join(tmp.path, ".agents/skills/hello/references/notes.md"), "utf-8"),
+      "root notes",
+    );
   });
 
-  it("returns security checks from the registry before installing", () => {
-    const regDir = join(tmp.path, "registry");
-    buildRegistry(regDir, [
-      {
-        name: "offer-warning-skill",
-        source: "owner/repo",
-        files: { "SKILL.md": "# warning" },
-        securityCheck: {
-          status: "warning",
-          findings: ["manual review"],
-          summary: "Needs manual review.",
-          checkedAt: new Date().toISOString(),
-        },
-      },
-    ]);
-    _setRegistryDir(regDir);
-
-    deepEqual(securityCheckForSkillPath("owner/repo/offer-warning-skill"), {
-      name: "offer-warning-skill",
-      status: "warning",
-      summary: "Needs manual review.",
-      findings: ["manual review"],
+  it("resolves nested skills and the legacy <name>/skills layout deterministically", async () => {
+    const fixture = sourceFixture({
+      "plugins/hello/skills/SKILL.md": "# Legacy",
+      "a/hello/SKILL.md": "# Shortest",
+      "longer/hello/SKILL.md": "# Other",
     });
+    const resolved = await resolveSourceSkill(source, fixture);
+    equal(resolved.skillPath, "a/hello");
+    const legacy = await resolveSourceSkill(
+      source,
+      sourceFixture({ "plugins/hello/skills/SKILL.md": "# Legacy" }),
+    );
+    equal(legacy.skillPath, "plugins/hello/skills");
   });
 
-  it("collects security checks when installing multiple skills", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      { name: "first-skill", source: "owner/repo", files: { "SKILL.md": "# first" } },
-      {
-        name: "second-skill",
-        source: "owner/repo",
-        files: { "SKILL.md": "# second" },
-        securityCheck: {
-          status: "warning",
-          findings: ["manual review"],
-          summary: "Needs manual review.",
-          checkedAt: new Date().toISOString(),
-        },
-      },
-    ]);
-    _setRegistryDir(regDir);
+  it("keeps the previous files and lock on failed downloads", async () => {
+    writeFile(tmp.path, ".agents/skills/hello/SKILL.md", "# old");
+    writeJson(tmp.path, "skills-lock.json", {
+      version: 1,
+      skills: { hello: { source: "owner/repo", sourceType: "github", computedHash: "old" } },
+    });
+    const before = readFileSync(join(tmp.path, "skills-lock.json"), "utf-8");
+    const fixture = sourceFixture({
+      "skills/hello/SKILL.md": "# latest",
+      "skills/hello/notes.md": "new",
+    });
+    const result = await installSkill(source, [], {
+      projectDir: tmp.path,
+      fetchImpl: (async (url, init) => {
+        if (String(url).includes("raw.githubusercontent.com") && String(url).endsWith("notes.md"))
+          return new Response("error", { status: 500 });
+        return fixture.fetchImpl(url, init);
+      }) as typeof fetch,
+    });
+    ok(!result.success);
+    equal(readFileSync(join(tmp.path, ".agents/skills/hello/SKILL.md"), "utf-8"), "# old");
+    equal(readFileSync(join(tmp.path, "skills-lock.json"), "utf-8"), before);
+  });
 
+  it("rejects altered source bytes before replacing an installation", async () => {
+    const fixture = sourceFixture({ "skills/hello/SKILL.md": "# real" });
+    const result = await installSkill(source, [], {
+      projectDir: tmp.path,
+      fetchImpl: (async (url, init) => {
+        if (String(url).includes("raw.githubusercontent.com")) return new Response("# tampered");
+        return fixture.fetchImpl(url, init);
+      }) as typeof fetch,
+    });
+    ok(!result.success);
+    ok(result.output.includes("source hash mismatch"));
+    ok(!existsSync(join(tmp.path, ".agents/skills/hello")));
+  });
+
+  it("preserves unrelated lock entries and shares repository lookups across concurrent installs", async () => {
+    writeJson(tmp.path, "skills-lock.json", {
+      version: 1,
+      skills: { zebra: { source: "x/y", sourceType: "other" } },
+    });
+    const fixture = sourceFixture({
+      "skills/hello/SKILL.md": "# hello",
+      "skills/alpha/SKILL.md": "# alpha",
+    });
     const result = await installAll(
       [
-        { skill: "owner/repo/first-skill", sources: [], installed: false },
-        { skill: "owner/repo/second-skill", sources: [], installed: false },
+        { skill: source, sources: [], installed: false },
+        { skill: "owner/repo/alpha", sources: [], installed: false },
       ],
       [],
-      { projectDir, registryDir: regDir },
+      { projectDir: tmp.path, ...fixture },
     );
-
     equal(result.installed, 2);
-    deepEqual(result.securityChecks.map((check) => check.name).sort(), [
-      "first-skill",
-      "second-skill",
-    ]);
-    equal(result.securityChecks.find((check) => check.name === "second-skill")?.status, "warning");
+    equal(result.failed, 0);
+    deepEqual(Object.keys(readSkillsLock(tmp.path).skills), ["alpha", "hello", "zebra"]);
+    equal(fixture.requests.filter((url) => url.endsWith("commits/HEAD")).length, 1);
+    equal(fixture.requests.filter((url) => url.includes("/git/trees/")).length, 1);
   });
 
-  it("installs from the local registry without fetching", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      { name: "local-skill", source: "owner/repo", files: { "SKILL.md": "# local" } },
-    ]);
-    _setRegistryDir(regDir);
+  it("repairs broken Pi links", async () => {
+    writeFile(tmp.path, ".pi/skills/.keep", "");
+    symlinkSync("missing", join(tmp.path, ".pi/skills/hello"));
+    const fixture = sourceFixture({ "skills/hello/SKILL.md": "# hello" });
+    const result = await installSkill(source, ["pi"], { projectDir: tmp.path, ...fixture });
+    ok(result.success, result.output);
+    ok(existsSync(join(tmp.path, ".pi/skills/hello/SKILL.md")));
+  });
 
-    const result = await installSkill("owner/repo/local-skill", [], {
-      projectDir,
-      registryDir: regDir,
-      fetchImpl: (async () => {
-        throw new Error("unexpected fetch");
+  it("reports rate limits and missing skills without writing files", async () => {
+    const missing = await installSkill(source, [], {
+      projectDir: tmp.path,
+      ...sourceFixture({ "skills/other/SKILL.md": "other" }),
+    });
+    ok(!missing.success);
+    ok(missing.output.includes("not found"));
+    const limited = await installSkill(source, [], {
+      projectDir: tmp.path,
+      fetchImpl: (async () =>
+        new Response("limit", {
+          status: 403,
+          headers: { "x-ratelimit-remaining": "0" },
+        })) as typeof fetch,
+    });
+    ok(!limited.success);
+    ok(limited.output.includes("GITHUB_TOKEN"));
+    ok(!existsSync(join(tmp.path, "skills-lock.json")));
+  });
+
+  it("rejects unsafe source paths and truncated trees", async () => {
+    const fixture = sourceFixture({ "skills/hello/SKILL.md": "# hello" });
+    for (const path of [
+      "owner/repo/../hello",
+      "owner/repo/hello/../../outside",
+      "https://example.com/skill",
+      "owner/repo/hello\\evil",
+    ]) {
+      const result = await installSkill(path, [], { projectDir: tmp.path, ...fixture });
+      ok(!result.success, path);
+    }
+    const result = await installSkill(source, [], {
+      projectDir: tmp.path,
+      fetchImpl: (async (url, init) => {
+        if (String(url).includes("/git/trees/"))
+          return Response.json({ truncated: true, tree: [] });
+        return fixture.fetchImpl(url, init);
       }) as typeof fetch,
     });
-
-    ok(result.success, result.output);
-    equal(
-      readFileSync(join(projectDir, ".agents", "skills", "local-skill", "SKILL.md"), "utf-8"),
-      "# local",
-    );
-  });
-
-  it("skips downloads when the installed skill already matches the manifest", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      {
-        name: "cached-skill",
-        source: "owner/repo",
-        files: { "SKILL.md": "# cached" },
-        securityCheck: {
-          status: "warning",
-          findings: ["reinstall warning"],
-          summary: "Reinstalled skill needs review.",
-          checkedAt: new Date().toISOString(),
-        },
-      },
-    ]);
-    const installedDir = join(projectDir, ".agents", "skills", "cached-skill");
-    mkdirSync(installedDir, { recursive: true });
-    writeFileSync(join(installedDir, "SKILL.md"), "# cached");
-    rmSync(join(regDir, "cached-skill"), { recursive: true, force: true });
-    _setRegistryDir(regDir);
-
-    const result = await installSkill("owner/repo/cached-skill", [], {
-      projectDir,
-      registryDir: regDir,
-      fetchImpl: (async () => {
-        throw new Error("unexpected fetch");
-      }) as typeof fetch,
-    });
-
-    ok(result.success, result.output);
-    deepEqual(result.securityCheck, {
-      name: "cached-skill",
-      status: "warning",
-      summary: "Reinstalled skill needs review.",
-      findings: ["reinstall warning"],
-    });
-  });
-
-  it("installs from the user cache without fetching", async () => {
-    const regDir = join(tmp.path, "registry");
-    const cacheDir = join(tmp.path, "cache");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      {
-        name: "cached-remote-skill",
-        source: "owner/repo",
-        files: { "SKILL.md": "# cached remote" },
-      },
-    ]);
-    const manifest = JSON.parse(readFileSync(join(regDir, "index.json"), "utf-8"));
-    const entry = manifest.skills["cached-remote-skill"] as RegistryEntry;
-    const cacheRegistryDir = join(cacheDir, entry.bundleHash);
-    mkdirSync(join(cacheRegistryDir, "cached-remote-skill"), { recursive: true });
-    writeFileSync(join(cacheRegistryDir, "cached-remote-skill", "SKILL.md"), "# cached remote");
-    rmSync(join(regDir, "cached-remote-skill"), { recursive: true, force: true });
-    _setRegistryDir(regDir);
-
-    const prevCacheDir = process.env.AUTOSKILLS_CACHE_DIR;
-    process.env.AUTOSKILLS_CACHE_DIR = cacheDir;
-    try {
-      const result = await installSkill("owner/repo/cached-remote-skill", [], {
-        projectDir,
-        registryDir: regDir,
-        fetchImpl: (async () => {
-          throw new Error("unexpected fetch");
-        }) as typeof fetch,
-      });
-
-      ok(result.success, result.output);
-    } finally {
-      if (prevCacheDir === undefined) delete process.env.AUTOSKILLS_CACHE_DIR;
-      else process.env.AUTOSKILLS_CACHE_DIR = prevCacheDir;
-    }
-  });
-
-  it("downloads from the raw GitHub registry by default", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      { name: "raw-skill", source: "owner/repo", files: { "AGENTS.md": "# raw" } },
-    ]);
-    _setRegistryDir(regDir);
-
-    const prevCacheDir = process.env.AUTOSKILLS_CACHE_DIR;
-    process.env.AUTOSKILLS_CACHE_DIR = join(tmp.path, "raw-github-cache");
-    const trace: string[] = [];
-    let result;
-    try {
-      result = await installSkill("owner/repo/raw-skill", [], {
-        projectDir,
-        registryDir: join(tmp.path, "manifest-only"),
-        onTrace: (message) => trace.push(message),
-        fetchImpl: (async (url: string | URL | Request) => {
-          const href = typeof url === "string" || url instanceof URL ? String(url) : url.url;
-          ok(
-            href.startsWith(
-              `https://raw.githubusercontent.com/midudev/autoskills/v${PACKAGE_VERSION}/`,
-            ),
-          );
-          return fetchFromRegistry(regDir)(url);
-        }) as typeof fetch,
-      });
-    } finally {
-      if (prevCacheDir === undefined) delete process.env.AUTOSKILLS_CACHE_DIR;
-      else process.env.AUTOSKILLS_CACHE_DIR = prevCacheDir;
-    }
-
-    ok(result.success, result.output);
-    ok(
-      trace.some((line) =>
-        line.includes(
-          `downloaded AGENTS.md from https://raw.githubusercontent.com/midudev/autoskills/v${PACKAGE_VERSION}/packages/autoskills/skills-registry/raw-skill/AGENTS.md`,
-        ),
-      ),
-    );
-    equal(
-      readFileSync(join(projectDir, ".agents", "skills", "raw-skill", "AGENTS.md"), "utf-8"),
-      "# raw",
-    );
-  });
-
-  it("normalizes Windows-style registry file paths before downloading", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      {
-        name: "windows-path-skill",
-        source: "owner/repo",
-        files: { "SKILL.md": "# raw", "references/notes.md": "notes" },
-      },
-    ]);
-    const manifestPath = join(regDir, "index.json");
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    manifest.skills["windows-path-skill"].files = ["SKILL.md", "references\\notes.md"];
-    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-    _setRegistryDir(regDir);
-
-    const prevCacheDir = process.env.AUTOSKILLS_CACHE_DIR;
-    process.env.AUTOSKILLS_CACHE_DIR = join(tmp.path, "windows-path-cache");
-    const seenUrls: string[] = [];
-    try {
-      const result = await installSkill("owner/repo/windows-path-skill", [], {
-        projectDir,
-        registryDir: join(tmp.path, "manifest-only"),
-        registryBaseUrl: "https://example.test/skills-registry",
-        fetchImpl: (async (url: string | URL | Request) => {
-          const href = typeof url === "string" || url instanceof URL ? String(url) : url.url;
-          seenUrls.push(href);
-          return fetchFromRegistry(regDir)(url);
-        }) as typeof fetch,
-      });
-
-      ok(result.success, result.output);
-      ok(
-        seenUrls.includes(
-          "https://example.test/skills-registry/windows-path-skill/references/notes.md",
-        ),
-      );
-      ok(seenUrls.every((url) => !url.includes("%5C") && !url.includes("\\")));
-      equal(
-        readFileSync(
-          join(projectDir, ".agents", "skills", "windows-path-skill", "references", "notes.md"),
-          "utf-8",
-        ),
-        "notes",
-      );
-    } finally {
-      if (prevCacheDir === undefined) delete process.env.AUTOSKILLS_CACHE_DIR;
-      else process.env.AUTOSKILLS_CACHE_DIR = prevCacheDir;
-    }
-  });
-
-  it("falls back to the main registry mirror when the release registry mirror is missing files", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      { name: "fallback-skill", source: "owner/repo", files: { "SKILL.md": "# fallback" } },
-    ]);
-    _setRegistryDir(regDir);
-
-    const prevCacheDir = process.env.AUTOSKILLS_CACHE_DIR;
-    process.env.AUTOSKILLS_CACHE_DIR = join(tmp.path, "fallback-main-cache");
-    const seenUrls: string[] = [];
-    try {
-      const result = await installSkill("owner/repo/fallback-skill", [], {
-        projectDir,
-        registryDir: join(tmp.path, "manifest-only"),
-        fetchImpl: (async (url: string | URL | Request) => {
-          const href = typeof url === "string" || url instanceof URL ? String(url) : url.url;
-          seenUrls.push(href);
-          if (href.includes(`/midudev/autoskills/v${PACKAGE_VERSION}/`)) {
-            return new Response("not found", { status: 404, statusText: "Not Found" });
-          }
-          if (href.includes("/midudev/autoskills/main/packages/autoskills/skills-registry/")) {
-            const rel = decodeURIComponent(
-              href.split("/midudev/autoskills/main/packages/autoskills/skills-registry/")[1],
-            );
-            return new Response(readFileSync(join(regDir, rel)));
-          }
-          return fetchFromRegistry(regDir)(url);
-        }) as typeof fetch,
-      });
-
-      ok(result.success, result.output);
-      ok(
-        seenUrls.some((url) =>
-          url.startsWith(
-            "https://raw.githubusercontent.com/midudev/autoskills/main/packages/autoskills/skills-registry/fallback-skill/",
-          ),
-        ),
-      );
-      equal(
-        readFileSync(join(projectDir, ".agents", "skills", "fallback-skill", "SKILL.md"), "utf-8"),
-        "# fallback",
-      );
-    } finally {
-      if (prevCacheDir === undefined) delete process.env.AUTOSKILLS_CACHE_DIR;
-      else process.env.AUTOSKILLS_CACHE_DIR = prevCacheDir;
-    }
-  });
-
-  it("creates symlinks for requested agents", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [{ name: "s1", source: "owner/repo", files: { "SKILL.md": "# s1" } }]);
-    _setRegistryDir(regDir);
-
-    const result = await installSkill("owner/repo/s1", ["universal", "claude-code", "junie"], {
-      projectDir,
-      registryDir: regDir,
-      registryBaseUrl: "https://example.test/skills-registry",
-      fetchImpl: fetchFromRegistry(regDir),
-    });
-    ok(result.success, result.output);
-
-    const claudeLink = join(projectDir, ".claude", "skills", "s1");
-    const junieLink = join(projectDir, ".junie", "skills", "s1");
-    ok(existsSync(claudeLink));
-    ok(existsSync(junieLink));
-
-    const target = readlinkSync(claudeLink);
-    ok(target.includes(".agents/skills/s1") || target.includes(".agents\\skills\\s1"));
-  });
-
-  it("rejects when skill is not in the registry", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      { name: "known", source: "owner/repo", files: { "SKILL.md": "# known" } },
-    ]);
-    _setRegistryDir(regDir);
-
-    const result = await installSkill("owner/repo/unknown", [], {
-      projectDir,
-      registryDir: regDir,
-    });
     ok(!result.success);
-    ok(result.output.includes("not found in registry"));
+    ok(result.output.includes("truncated"));
   });
 
-  it("rejects when downloaded content fails the integrity check", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      { name: "tampered", source: "owner/repo", files: { "SKILL.md": "# ok" } },
-    ]);
-    writeFileSync(join(regDir, "tampered", "SKILL.md"), "# evil");
-    _setRegistryDir(regDir);
-
-    const result = await installSkill("owner/repo/tampered", [], {
-      projectDir,
-      registryDir: regDir,
-      registryBaseUrl: "https://example.test/skills-registry",
-      fetchImpl: fetchFromRegistry(regDir),
-    });
-    ok(!result.success);
-    ok(result.output.includes("hash mismatch"));
-  });
-
-  it("rejects disallowed .zip files before downloading", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    buildRegistry(regDir, [
-      { name: "archive-skill", source: "owner/repo", files: { "downloads/tool.ZIP": "zip" } },
-    ]);
-    rmSync(join(regDir, "archive-skill"), { recursive: true, force: true });
-    _setRegistryDir(regDir);
-
-    const result = await installSkill("owner/repo/archive-skill", [], {
-      projectDir,
-      registryDir: regDir,
-      fetchImpl: (async () => {
-        throw new Error("unexpected fetch");
-      }) as typeof fetch,
-    });
-
-    ok(!result.success);
-    ok(result.output.includes("refusing to download disallowed skill archive"));
-  });
-
-  it("preserves existing entries in skills-lock.json and sorts keys", async () => {
-    const regDir = join(tmp.path, "registry");
-    const projectDir = join(tmp.path, "project");
-    mkdirSync(projectDir, { recursive: true });
-    writeFileSync(
-      join(projectDir, "skills-lock.json"),
-      JSON.stringify({
-        version: 1,
-        skills: { zebra: { source: "x/y", sourceType: "autoskills-registry", computedHash: "z" } },
-      }),
-    );
-    buildRegistry(regDir, [{ name: "alpha", source: "owner/repo", files: { "SKILL.md": "# a" } }]);
-    _setRegistryDir(regDir);
-
-    const result = await installSkill("owner/repo/alpha", [], {
-      projectDir,
-      registryDir: regDir,
-      registryBaseUrl: "https://example.test/skills-registry",
-      fetchImpl: fetchFromRegistry(regDir),
-    });
-    ok(result.success);
-
-    const lock = JSON.parse(readFileSync(join(projectDir, "skills-lock.json"), "utf-8"));
-    deepEqual(Object.keys(lock.skills), ["alpha", "zebra"]);
-    equal(lock.skills.zebra.source, "x/y");
+  it("maps Pi and existing dedicated agent folders", () => {
+    equal(agentFolderFor("pi"), ".pi");
+    equal(agentFolderFor("claude-code"), ".claude");
+    equal(agentFolderFor("junie"), ".junie");
+    equal(agentFolderFor("codex"), null);
+    equal(agentFolderFor("unknown"), null);
   });
 });

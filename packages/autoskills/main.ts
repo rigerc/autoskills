@@ -20,14 +20,9 @@ import {
   SHOW_CURSOR,
 } from "./colors.ts";
 import { printBanner, multiSelect, formatTime } from "./ui.ts";
-import {
-  clearAutoskillsCache,
-  installAll,
-  loadRegistry,
-  securityCheckForSkillPath,
-} from "./installer.ts";
+import { clearAutoskillsCache, installAll, securityCheckForSkillPath } from "./installer.ts";
 import type { InstallSecurityCheck } from "./installer.ts";
-import { cleanupClaudeMd } from "./claude.ts";
+import { checkSkillUpdates, updateSkill } from "./updater.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VERSION: string = (() => {
@@ -94,6 +89,7 @@ function showHelp(): void {
 
   ${bold("Usage:")}
     npx autoskills                   Detect & install skills
+    npx autoskills ${dim("update")}              Update outdated installed skills
     npx autoskills ${dim("ui")}                  Browse installed skills locally
     npx autoskills ${dim("-y")}                   Skip confirmation
     npx autoskills ${dim("--dry-run")}            Show what would be installed
@@ -105,7 +101,7 @@ function showHelp(): void {
     --dry-run       Show skills without installing
     --clear-cache   Clear downloaded skills cache
     -v, --verbose   Show install trace and error details
-    -a, --agent     Install for specific IDEs only (e.g. cursor, claude-code)
+    -a, --agent     Install for specific IDEs only (e.g. cursor, claude-code, pi)
     -h, --help      Show this help message
 
   ${bold("UI:")}
@@ -188,7 +184,7 @@ function securityWarningForSkill(skill: string): string | null {
   return detail || "The sync review found issues that should be checked.";
 }
 
-function printSkillsList(skills: SkillEntry[]): void {
+function printSkillsList(skills: SkillEntry[], action: "install" | "update" = "install"): void {
   const INSTALLED_TAG = " (installed)";
   const SECURITY_TAG = " (security check ⚠)";
   const entries = skills.map((s) => ({
@@ -211,7 +207,7 @@ function printSkillsList(skills: SkillEntry[]): void {
     installedCount > 0
       ? `(${skills.length}, ${installedCount} already installed)`
       : `(${skills.length})`;
-  log(cyan("   ◆ ") + bold(`Skills to install `) + dim(countLabel));
+  log(cyan("   ◆ ") + bold(`Skills to ${action} `) + dim(countLabel));
   log();
   for (let i = 0; i < entries.length; i++) {
     const { label, styledLabel, sources, installed, hasSecurityWarning } = entries[i];
@@ -433,9 +429,13 @@ function printSummary({ installed, failed, errors, elapsed, verbose }: SummaryOp
 
 // ── Skill Selection ──────────────────────────────────────────
 
-async function selectSkills(skills: SkillEntry[], autoYes: boolean): Promise<SkillEntry[]> {
+async function selectSkills(
+  skills: SkillEntry[],
+  autoYes: boolean,
+  action: "install" | "update" = "install",
+): Promise<SkillEntry[]> {
   if (autoYes) {
-    printSkillsList(skills);
+    printSkillsList(skills, action);
     return skills;
   }
 
@@ -469,7 +469,7 @@ async function selectSkills(skills: SkillEntry[], autoYes: boolean): Promise<Ski
     installedCount > 0
       ? `${skills.length} found, ${installedCount} already installed`
       : `${skills.length} found`;
-  log(cyan("   ◆ ") + bold(`Select skills to install `) + dim(`(${countLabel})`));
+  log(cyan("   ◆ ") + bold(`Select skills to ${action} `) + dim(`(${countLabel})`));
   log();
 
   const selected = await multiSelect(skills, {
@@ -517,7 +517,7 @@ async function selectSkills(skills: SkillEntry[], autoYes: boolean): Promise<Ski
 async function main(): Promise<void> {
   const { command, autoYes, dryRun, verbose, help, clearCache, agents, port, noOpen } = parseArgs();
 
-  if (command && command !== "ui") {
+  if (command && command !== "ui" && command !== "update") {
     log(yellow(`   Unknown command: ${command}`));
     showHelp();
     process.exit(1);
@@ -549,6 +549,60 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  if (command === "update") {
+    log(dim("   Checking installed skills against upstream sources..."));
+    const checks = await checkSkillUpdates({
+      projectDir: resolve("."),
+      onTrace: verbose ? (message) => log(dim(`   ${message}`)) : undefined,
+    });
+    const outdated = checks.skills.filter((skill) => skill.outdated);
+    for (const { name, error } of checks.errors) log(red(`   ✘ ${name}: ${error}`));
+    if (checks.skipped.length)
+      log(dim(`   Skipped ${checks.skipped.length} skills from unsupported sources.`));
+    if (checks.errors.length) process.exitCode = 1;
+    if (!outdated.length) {
+      log(
+        checks.skills.length
+          ? green("   ✔ All checked skills are up to date.")
+          : dim("   No updatable skills found."),
+      );
+      return;
+    }
+    if (dryRun) {
+      for (const { name, source } of outdated) log(`   ${name} → ${source.commitSha.slice(0, 7)}`);
+      log(dim("   --dry-run: nothing was updated."));
+      return;
+    }
+    const selected = await selectSkills(
+      outdated.map(({ name, source }) => ({
+        skill: `${source.source}/${name}`,
+        sources: ["Outdated"],
+        installed: false,
+      })),
+      autoYes,
+      "update",
+    );
+    let updated = 0;
+    let failed = 0;
+    for (const skill of selected) {
+      const update = outdated.find((item) => `${item.source.source}/${item.name}` === skill.skill)!;
+      const result = await updateSkill(update, agents, {
+        projectDir: resolve("."),
+        onTrace: verbose ? (message) => log(dim(`   ${message}`)) : undefined,
+      });
+      if (result.success) {
+        updated++;
+        log(green(`   ✔ Updated ${update.name}`));
+      } else {
+        failed++;
+        log(red(`   ✘ ${update.name}: ${result.output}`));
+      }
+    }
+    log(`   ${updated} updated, ${failed} failed.`);
+    if (failed) process.exitCode = 1;
+    return;
+  }
+
   await printBanner(VERSION);
 
   const projectDir = resolve(".");
@@ -568,17 +622,13 @@ async function main(): Promise<void> {
 
   const installedNames = getInstalledSkillNames(projectDir);
   const skills = collectSkills({ detected, isFrontend, combos, installedNames });
-  const resolvedAgents = agents.length > 0 ? agents : detectAgents();
+  const resolvedAgents = agents.length > 0 ? agents : detectAgents(undefined, projectDir);
 
   if (skills.length === 0) {
     log(yellow("   No skills available for your stack yet."));
     log(dim("   Check https://autoskills.sh for the latest."));
     log();
     process.exit(0);
-  }
-
-  if (!dryRun) {
-    setImmediate(loadRegistry);
   }
 
   if (dryRun) {
@@ -606,7 +656,6 @@ async function main(): Promise<void> {
     },
   );
   const elapsed = Date.now() - startTime;
-  const claudeCleanup = cleanupClaudeMd(projectDir);
 
   if (process.stdout.isTTY && !verbose) {
     const up = selectedSkills.length + 2;
@@ -615,17 +664,9 @@ async function main(): Promise<void> {
     write(`\x1b[${selectedSkills.length + 1}B`);
   }
 
-  if (claudeCleanup.cleaned) {
-    if (claudeCleanup.deleted) {
-      log(dim("   Removed autoskills section from CLAUDE.md (file was empty, deleted)."));
-    } else {
-      log(dim("   Removed autoskills section from CLAUDE.md."));
-    }
-    log();
-  }
-
   printSecurityChecks(securityChecks);
   printSummary({ installed, failed, errors, elapsed, verbose });
+  if (failed) process.exitCode = 1;
 }
 
 main().catch((err: Error) => {

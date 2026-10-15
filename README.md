@@ -22,18 +22,27 @@ npx autoskills
 
 1. Run `npx autoskills` in your project root
 2. Your `package.json`, Gradle files, and config files are scanned to detect technologies
-3. The best matching AI agent skills are selected from the audited autoskills registry
-4. Only the selected skill files are downloaded from the registry and verified before writing them locally
+3. The best matching AI agent skills are selected from the curated technology map
+4. Skills and supporting files are downloaded directly from their upstream GitHub repositories at a resolved commit, verified against that commit’s Git blobs, and installed locally
 
 That's it. No config needed.
 
-## Security model
+## Installation and updates
 
-`autoskills` does not install directly from random upstream repositories at runtime.
+Skills install into `.agents/skills`, with links for dedicated agent drawers including Pi (`.pi/skills`) and Claude Code (`.claude/skills`). The local desk also discovers Pi's global skills in `~/.pi/agent/skills`. `autoskills` does not create or modify `CLAUDE.md`.
 
-Skills are synced by maintainers into the repository-local autoskills registry, reviewed by AI for prompt-injection and supply-chain attacks (a fast model triages every change and a stronger one decides on anything suspicious), and recorded with SHA-256 hashes in a manifest. Skills that are safe but worth a heads-up are shown with a security warning before you install them. When you run `autoskills`, the CLI downloads only the skills your project needs from that curated registry, verifies every file against the manifest, and writes a `skills-lock.json` entry with the installed source and bundle hash.
+`skills-lock.json` records each skill's upstream repository, path, commit, content hash, and target agents. Installation always reads the current upstream source; locally synced registry copies and old review results are not used for installation.
 
-This keeps the package small while avoiding live downloads from third-party skill sources during installation.
+```bash
+npx autoskills update --dry-run  # Check for outdated installed skills
+npx autoskills update           # Select and update outdated skills
+npx autoskills update -y        # Update all outdated skills
+npx autoskills -a pi            # Install for Pi
+```
+
+Updates compare the files within each skill, so unrelated repository commits do not trigger updates. Updating replaces the installed skill, removes files deleted upstream, and refreshes its existing agent links or fallback copies. Old `autoskills-registry` lock entries migrate to upstream tracking on their first update. Unsupported lockfile sources are skipped; unavailable sources are reported without preventing other skills from updating.
+
+Downloads are pinned to a single commit and verified against its Git blob hashes. These checks verify the downloaded bytes; live upstream content has not been reviewed by the former synced-registry audit. `GITHUB_TOKEN` or `GH_TOKEN` can be set for private repositories or higher GitHub API limits.
 
 ## Options
 
@@ -41,7 +50,7 @@ This keeps the package small while avoiding live downloads from third-party skil
 -y, --yes       Skip confirmation prompt
 --dry-run       Show what would be installed without installing
 --clear-cache   Clear the downloaded skills cache
--a, --agent     Install for specific IDEs only (e.g. cursor claude-code)
+-a, --agent     Install for specific IDEs only (e.g. cursor claude-code pi)
 -v, --verbose   Show install trace and error details
 -h, --help      Show help message
 ```

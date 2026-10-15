@@ -1,20 +1,24 @@
 import { describe, it } from "node:test";
-import { ok } from "node:assert/strict";
+import { ok, equal, throws } from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { useTmpDir, writePackageJson, writeFile, writeJson, addWorkspace } from "./helpers.ts";
 
 const CLI_PATH = resolve(import.meta.dirname!, "..", "index.mjs");
 
-function run(args: string[] = [], cwd: string = process.cwd()): string {
+function run(
+  args: string[] = [],
+  cwd: string = process.cwd(),
+  overrides: NodeJS.ProcessEnv = {},
+): string {
   // FORCE_COLOR wins over NO_COLOR, and pnpm sets it when scripts run in a terminal.
   const { FORCE_COLOR: _forceColor, ...env } = process.env;
   return execFileSync(process.execPath, [CLI_PATH, ...args], {
     cwd,
     encoding: "utf-8",
     timeout: 10_000,
-    env: { ...env, NO_COLOR: "1" },
+    env: { ...env, NO_COLOR: "1", ...overrides },
   });
 }
 
@@ -29,6 +33,8 @@ describe("CLI", () => {
     ok(output.includes("--yes"));
     ok(output.includes("--agent"));
     ok(output.includes("autoskills ui"));
+    ok(output.includes("update"));
+    ok(output.includes("pi"));
     ok(output.includes("--no-open"));
   });
 
@@ -54,6 +60,64 @@ describe("CLI", () => {
       if (prevCacheDir === undefined) delete process.env.AUTOSKILLS_CACHE_DIR;
       else process.env.AUTOSKILLS_CACHE_DIR = prevCacheDir;
     }
+  });
+
+  describe("update", () => {
+    function mockSource(files: Record<string, string>): NodeJS.ProcessEnv {
+      const helper = new URL("./source-helpers.ts", import.meta.url).href;
+      writeFile(
+        tmp.path,
+        "mock-fetch.mjs",
+        `import { sourceFixture } from ${JSON.stringify(helper)}; globalThis.fetch = sourceFixture(${JSON.stringify(files)}).fetchImpl;`,
+      );
+      return { NODE_OPTIONS: `--import=${join(tmp.path, "mock-fetch.mjs")}` };
+    }
+
+    it("works without a detected stack or installed skills", () => {
+      ok(run(["update", "-y"], tmp.path).includes("No updatable skills found"));
+    });
+
+    it("previews outdated skills without writing files", () => {
+      writeJson(tmp.path, "skills-lock.json", {
+        version: 1,
+        skills: { hello: { source: "owner/repo", sourceType: "autoskills-registry" } },
+      });
+      const before = readFileSync(join(tmp.path, "skills-lock.json"), "utf-8");
+      const output = run(
+        ["update", "--dry-run"],
+        tmp.path,
+        mockSource({ "skills/hello/SKILL.md": "latest" }),
+      );
+      ok(output.includes("hello → aaaaaaa"));
+      ok(output.includes("nothing was updated"));
+      equal(readFileSync(join(tmp.path, "skills-lock.json"), "utf-8"), before);
+      ok(!existsSync(join(tmp.path, ".agents")));
+    });
+
+    it("updates with -y, supports Pi, and leaves CLAUDE.md untouched", () => {
+      writeJson(tmp.path, "skills-lock.json", {
+        version: 1,
+        skills: { hello: { source: "owner/repo", sourceType: "autoskills-registry" } },
+      });
+      writeFile(tmp.path, "CLAUDE.md", "# User instructions\n");
+      const env = mockSource({ "skills/hello/SKILL.md": "latest" });
+      const output = run(["update", "-y", "-a", "pi"], tmp.path, env);
+      ok(output.includes("1 updated, 0 failed"));
+      equal(readFileSync(join(tmp.path, ".pi/skills/hello/SKILL.md"), "utf-8"), "latest");
+      equal(readFileSync(join(tmp.path, "CLAUDE.md"), "utf-8"), "# User instructions\n");
+      ok(run(["update", "-y"], tmp.path, env).includes("All checked skills are up to date"));
+    });
+
+    it("returns a failing exit code when an upstream source cannot be resolved", () => {
+      writeJson(tmp.path, "skills-lock.json", {
+        version: 1,
+        skills: { hello: { source: "owner/repo", sourceType: "github" } },
+      });
+      throws(
+        () => run(["update", "-y"], tmp.path, mockSource({ "skills/other/SKILL.md": "other" })),
+        (error: any) => error.status === 1 && error.stdout.includes("not found"),
+      );
+    });
   });
 
   describe("--dry-run", () => {

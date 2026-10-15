@@ -41,6 +41,7 @@ const MIME: Record<string, string> = {
 };
 
 export interface DeskOptions {
+  fetchImpl?: typeof fetch;
   projectDir: string;
   homeDir?: string;
   port?: number;
@@ -139,7 +140,7 @@ function snapshot(opts: DeskOptions) {
   return {
     projectDir: inventory.projectDir,
     homeDir: inventory.homeDir,
-    agents: detectAgents(inventory.homeDir),
+    agents: detectAgents(inventory.homeDir, projectDir),
     drawers: inventory.drawers,
     installed: inventory.skills,
     recommended,
@@ -244,7 +245,7 @@ export function createDeskRequestListener(opts: DeskOptions) {
         }
         const agents = Array.isArray(body.agents)
           ? body.agents.filter((agent): agent is string => typeof agent === "string")
-          : detectAgents(opts.homeDir);
+          : detectAgents(opts.homeDir, projectDir);
         let installed = 0;
         let failed = 0;
         const errors: {
@@ -256,7 +257,10 @@ export function createDeskRequestListener(opts: DeskOptions) {
         }[] = [];
         const securityChecks: InstallSecurityCheck[] = [];
         for (const skill of skills) {
-          const result = await installSkill(skill, agents, { projectDir });
+          const result = await installSkill(skill, agents, {
+            projectDir,
+            fetchImpl: opts.fetchImpl,
+          });
           if (result.success) {
             installed += 1;
             if (result.securityCheck) securityChecks.push(result.securityCheck);

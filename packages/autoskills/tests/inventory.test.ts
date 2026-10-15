@@ -95,6 +95,21 @@ describe("scanInstalledSkills", () => {
     ok(link?.linkTarget);
   });
 
+  it("finds Pi project and global drawers with the correct agent", () => {
+    const project = join(tmp.path, "project");
+    const home = join(tmp.path, "home");
+    writeSkill(project, ".pi/skills", "project-pi");
+    writeSkill(home, ".pi/agent/skills", "global-pi");
+    const inventory = scanInstalledSkills({ projectDir: project, homeDir: home });
+    equal(inventory.skills.length, 2);
+    equal(inventory.skills[0].agent, "pi");
+    equal(inventory.skills[0].drawer, ".pi");
+    equal(inventory.skills[0].scope, "project");
+    equal(inventory.skills[1].agent, "pi");
+    equal(inventory.skills[1].drawer, ".pi/agent");
+    equal(inventory.skills[1].scope, "system");
+  });
+
   it("finds system drawers and plugin skills", () => {
     const project = join(tmp.path, "empty-project");
     const home = join(tmp.path, "home");

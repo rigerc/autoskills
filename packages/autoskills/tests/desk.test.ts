@@ -1,20 +1,14 @@
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { equal, match, ok } from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 
 import { createDeskServer } from "../desk.ts";
 import { skillIdForPath } from "../inventory.ts";
-import { _setRegistryDir } from "../installer.ts";
-import type { RegistryEntry } from "../installer.ts";
+import { sourceFixture } from "./source-helpers.ts";
 import { useTmpDir, writeFile } from "./helpers.ts";
-
-function sha256(buf: string | Buffer): string {
-  return createHash("sha256").update(buf).digest("hex");
-}
 
 function listen(server: ReturnType<typeof createDeskServer>): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -61,52 +55,14 @@ function httpJson(
   });
 }
 
-function buildRegistry(dir: string, name: string, content: string): void {
-  mkdirSync(join(dir, name), { recursive: true });
-  writeFileSync(join(dir, name, "SKILL.md"), content);
-  const hash = sha256(content);
-  const entry: RegistryEntry = {
-    source: "owner/repo",
-    skillPath: `owner/repo/${name}`,
-    commitSha: "deadbeef",
-    files: ["SKILL.md"],
-    sha256: { "SKILL.md": hash },
-    bundleHash: sha256(`SKILL.md:${hash}`),
-    review: {
-      status: "approved",
-      flags: [],
-      summary: "test",
-      model: "test-model",
-      promptVersion: "1.0.0",
-      reviewedAt: new Date().toISOString(),
-    },
-  };
-  writeFileSync(
-    join(dir, "index.json"),
-    JSON.stringify(
-      {
-        version: 1,
-        generatedAt: new Date().toISOString(),
-        reviewer: { model: "test-model", promptVersion: "1.0.0" },
-        skills: { [name]: entry },
-      },
-      null,
-      2,
-    ),
-  );
-}
-
 describe("desk server", () => {
   const tmp = useTmpDir();
 
-  afterEach(() => {
-    _setRegistryDir(null);
-  });
-
-  async function startDesk(project: string, home: string) {
+  async function startDesk(project: string, home: string, fetchImpl?: typeof fetch) {
     const server = createDeskServer({
       projectDir: project,
       homeDir: home,
+      fetchImpl,
       open: false,
     });
     const url = await listen(server);
@@ -183,16 +139,16 @@ describe("desk server", () => {
     }
   });
 
-  it("installs a registry skill through the API", async () => {
+  it("installs an upstream skill through the API", async () => {
     const project = join(tmp.path, "project");
     const home = join(tmp.path, "home");
-    const regDir = join(tmp.path, "registry");
     mkdirSync(project, { recursive: true });
     mkdirSync(home, { recursive: true });
-    buildRegistry(regDir, "desk-install", "---\nname: desk-install\n---\n# hi\n");
-    _setRegistryDir(regDir);
+    const fixture = sourceFixture({
+      "skills/desk-install/SKILL.md": "---\nname: desk-install\n---\n# hi\n",
+    });
 
-    const desk = await startDesk(project, home);
+    const desk = await startDesk(project, home, fixture.fetchImpl);
     try {
       const res = await httpJson(`${desk.url}/api/install`, {
         method: "POST",

@@ -192,6 +192,7 @@ function drawerLabel(drawer: string): string {
   const mapped = agents[drawer];
   if (mapped === "universal") return "Universal";
   if (mapped) return mapped;
+  if (drawer === ".pi/agent") return "pi";
   if (drawer.includes("/plugins") || drawer.includes("/extensions")) {
     const parts = drawer.split("/").filter(Boolean);
     const tool = (parts[0] || "").replace(/^\./, "") || "plugin";
@@ -398,8 +399,14 @@ function loadManagedNames(projectDir: string): Set<string> {
   return new Set();
 }
 
-function knownDrawers(): string[] {
-  return [...new Set([".agents", ...Object.keys(drawerAgents())])];
+function knownDrawers(scope: SkillScope = "project"): string[] {
+  return [
+    ...new Set([
+      ".agents",
+      ...Object.keys(drawerAgents()),
+      ...(scope === "system" ? [".pi/agent"] : []),
+    ]),
+  ];
 }
 
 function scanRoot(
@@ -411,7 +418,7 @@ function scanRoot(
 ): void {
   const scannedSkillsDirs = new Set<string>();
 
-  for (const drawer of knownDrawers()) {
+  for (const drawer of knownDrawers(scope)) {
     const skillsDir = join(root, drawer, "skills");
     scannedSkillsDirs.add(resolve(skillsDir));
     scanSkillsDir(skillsDir, scope, drawer, managedNames, into, seen);

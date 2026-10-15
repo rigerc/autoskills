@@ -263,8 +263,8 @@ const skillsMap = [...SKILLS_MAP].sort(
         <div class="flex gap-4">
           <span class="text-zinc-600 shrink-0">[3]</span>
           <div>
-            <p class="text-zinc-200">Use the curated registry</p>
-            <p class="text-zinc-500">Skills are synced, reviewed, and stored in the autoskills registry instead of installed directly from upstream sources.</p>
+            <p class="text-zinc-200">Install from the source</p>
+            <p class="text-zinc-500">Skills and supporting files are installed directly from their upstream repositories, with the source revision recorded for updates.</p>
           </div>
         </div>
         <div class="flex gap-4">
@@ -321,7 +321,7 @@ const skillsMap = [...SKILLS_MAP].sort(
     <!-- Supported Technologies & Skills -->
     <div class="mb-12">
       <p class="text-zinc-600 mb-2 uppercase tracking-widest text-xs">Supported technologies & skills</p>
-      <p class="text-zinc-600 mb-6">Each technology auto-installs curated skills from the audited autoskills registry. Links open the original skill pages for context.</p>
+      <p class="text-zinc-600 mb-6">Each technology auto-installs curated skills from their upstream repositories. Links open the original skill pages for context.</p>
       <div class="space-y-0">
         {skillsMap.map((tech) => (
           <div class="group border-b border-zinc-800/40 py-2.5 first:border-t [content-visibility:auto] [contain-intrinsic-size:auto_2.5rem]">
@@ -524,8 +524,8 @@ const skillsMap = [...SKILLS_MAP].sort(
 
       // Installing
       d(300, '')
-      d(0, s(C.cy, '   ▸ ') + s(C.wh, 'Verifying curated registry...'))
-      d(200, s(C.gn, '   ✔ ') + s(C.z5, 'manifest and hashes loaded'))
+      d(0, s(C.cy, '   ▸ ') + s(C.wh, 'Resolving upstream skills...'))
+      d(200, s(C.gn, '   ✔ ') + s(C.z5, 'source revisions resolved'))
       d(200, '')
       d(0, s(C.cy, '   ▸ ') + s(C.wh, 'Installing skills...'))
       d(200, '')
