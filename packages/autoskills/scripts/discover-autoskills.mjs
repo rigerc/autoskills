@@ -15,6 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { norm, phrase, unique, basename, signals, domain,
   bestMatches, createQueryPlanner, parseSkillMarkdown } from './discovery-matcher.mjs';
+import { createDiscoveryCache, defaultCacheDir } from './discovery-cache.mjs';
 
 const DEFAULT_DIRECTORY_API = 'https://www.skillsdirectory.com/api/registry';
 const DEFAULT_SKILLSMD_API = 'https://skillsmd.dev/api';
@@ -34,6 +35,7 @@ function options(argv) {
     skillsmdApi: process.env.SKILLSMD_API || DEFAULT_SKILLSMD_API,
     source: 'both', skillsmdPages: 3, skillsmdSearches: 25, skillsmdFilter: 'all',
     githubApi: process.env.GITHUB_API_URL || DEFAULT_GITHUB_API,
+    cache: true, cacheDir: defaultCacheDir(), cacheTtlMinutes: 360, clearCache: false,
     verbose: false,
   };
   const names = {
@@ -48,6 +50,7 @@ function options(argv) {
     '--api-base':'apiBase','--github-api':'githubApi',
     '--skillsmd-api':'skillsmdApi', '--source':'source',
     '--skillsmd-pages':'skillsmdPages', '--skillsmd-searches':'skillsmdSearches', '--skillsmd-filter':'skillsmdFilter',
+    '--cache-dir':'cacheDir', '--cache-ttl-minutes':'cacheTtlMinutes',
   };
   for (let i=0; i<argv.length; i++) {
     const flag = argv[i];
@@ -81,6 +84,11 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --api-base URL        Skills Directory endpoint (for tests)
   --skillsmd-api URL    SkillsMD API base (for tests)
   --github-api URL      GitHub API base (for tests)
+  --cache               Enable persistent JSON response cache (default)
+  --no-cache            Disable cache reads and writes
+  --cache-dir DIR       Cache root (default: XDG cache/autoskills)
+  --cache-ttl-minutes N Discovery metadata cache TTL (default: 360)
+  --clear-cache         Clear prior discovery cache before running
   --verbose             Log API fetches to stderr
   --help                Show help
 
@@ -91,6 +99,9 @@ by that documentation. --api-base/--github-api support local integration tests.
       process.exit(0);
     }
     if (flag === '--verbose') { out.verbose = true; continue; }
+    if (flag === '--cache') { out.cache = true; continue; }
+    if (flag === '--no-cache') { out.cache = false; continue; }
+    if (flag === '--clear-cache') { out.clearCache = true; continue; }
     if (flag === '--interactive') { out.interactive = 'on'; continue; }
     if (flag === '--no-interactive') { out.interactive = 'off'; continue; }
     const prop = names[flag];
@@ -98,7 +109,7 @@ by that documentation. --api-base/--github-api support local integration tests.
     if (argv[i+1] === undefined || argv[i+1].startsWith('--')) throw new Error(`Missing value for ${flag}`);
     const raw = argv[++i];
     if (prop === 'tech') out.tech = raw.split(',').map(x=>x.trim()).filter(Boolean);
-    else if (['limit','pages','recentPages','categoryPages','queriesPerTech','minScore','detailsLimit','verifyLimit','maxPerTech','skillsmdPages','skillsmdSearches','directorySearches'].includes(prop)) {
+    else if (['limit','pages','recentPages','categoryPages','queriesPerTech','minScore','detailsLimit','verifyLimit','maxPerTech','skillsmdPages','skillsmdSearches','directorySearches','cacheTtlMinutes'].includes(prop)) {
       const n = Number(raw);
       if (!Number.isSafeInteger(n) || n < 0) throw new Error(`${flag} must be a nonnegative integer`);
       out[prop] = n;
@@ -108,6 +119,7 @@ by that documentation. --api-base/--github-api support local integration tests.
   if (!['all','hot','trending'].includes(out.skillsmdFilter)) throw new Error('--skillsmd-filter must be all, hot, or trending');
   if (!['recent','stars','votes'].includes(out.sort)) throw new Error('--sort must be recent, stars, or votes');
   if (out.limit < 1 || out.limit > 100) throw new Error('--limit must be 1..100');
+  if (out.cacheTtlMinutes > 43200) throw new Error('--cache-ttl-minutes must be 0..43200');
   if (out.pages > 20 || out.recentPages > 20 || out.categoryPages > 20 || out.queriesPerTech > 6 || out.skillsmdPages > 30 || out.skillsmdSearches > 100 || out.directorySearches > 300) throw new Error('Page/query limits too high');
   return out;
 }
@@ -146,16 +158,24 @@ function listSkillPaths(map,manifest) {
 }
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+let discoveryCache;
 async function jsonFetch(url,{token='',verbose=false,kind='directory'}={}) {
+  const cached=discoveryCache?.get(url,kind,token);
+  if(cached?.hit) return cached.value;
   const headers={Accept:'application/json','User-Agent':'autoskills-discovery/1.0'};
   if (token) headers.Authorization=`Bearer ${token}`;
   if (kind==='github') headers['X-GitHub-Api-Version']='2022-11-28';
   for (let attempt=0;attempt<3;attempt++) {
+    discoveryCache?.stats && discoveryCache.stats.networkRequests++;
     if(verbose) console.error(`GET ${url}`);
     let res;
     try { res=await fetch(url,{headers,signal:AbortSignal.timeout(25000)}); }
     catch (e) { if(attempt===2) throw e; await sleep(500*(attempt+1));continue; }
-    if (res.ok) return res.json();
+    if (res.ok) {
+      const body=await res.json();
+      discoveryCache?.set(url,kind,token,body);
+      return body;
+    }
     const detail=(await res.text()).slice(0,300);
     if (![429,500,502,503,504].includes(res.status) || attempt===2) {
       throw new Error(`HTTP ${res.status} ${url}: ${detail}`);
@@ -768,6 +788,9 @@ async function main() {
   }
   const root=opts.repoRoot?locateRoot(opts.repoRoot):locateRoot(process.cwd())||locateRoot(dirname(fileURLToPath(import.meta.url)));
   if(!root) throw new Error('Cannot find autoskills checkout. Pass --repo-root /path/to/autoskills');
+  discoveryCache=createDiscoveryCache({enabled:opts.cache,cacheDir:opts.cacheDir,
+    ttlMinutes:opts.cacheTtlMinutes,clear:opts.clearCache,verbose:opts.verbose});
+  if(opts.verbose) console.error(`Discovery cache: ${discoveryCache.enabled ? discoveryCache.dir : 'disabled'}`);
   const pkg=pkgRoot(root);
   const map=await import(pathToFileURL(join(pkg,'skills-map.ts')).href);
   const all=map.SKILLS_MAP;
@@ -853,7 +876,8 @@ async function main() {
       directoryRows:found.stats.rows,uniqueDirectorySkills:found.items.length,
       skillsmdRequests:md.stats.requests,skillsmdRows:md.stats.rows,
       uniqueSkillsMdRepos:new Set(md.items.map(x=>x.repository.toLowerCase())).size,
-      semanticCandidates:candidates.length,githubVerified:final.length},
+      semanticCandidates:candidates.length,githubVerified:final.length,
+      cache:{enabled:discoveryCache.enabled,directory:discoveryCache.dir,...discoveryCache.stats}},
     technologies:filtered.map(x=>({id:x.id,name:x.name})),
     matches:final,
     errors:[...found.errors,...md.errors,...candidates.flatMap(x=>x.notes.map(n=>`${x.source} ${x.skill.repository}: ${n}`))],
@@ -862,6 +886,7 @@ async function main() {
   outputFile(opts.output,JSON.stringify(report,null,2));
   outputFile(opts.markdown,markdownReport(report,opts));
   console.error(`Done: ${report.stats.uniqueDirectorySkills} Skills Directory entries + ${report.stats.uniqueSkillsMdRepos} SkillsMD repos; ${candidates.length} matched entries; ${final.length} new GitHub-verified SKILL.md paths.`);
+  console.error(`Cache: ${discoveryCache.stats.hits} hits, ${discoveryCache.stats.misses} misses, ${discoveryCache.stats.networkRequests} HTTP attempts, ${discoveryCache.stats.writes} writes (${discoveryCache.enabled ? discoveryCache.dir : 'disabled'}).`);
   if (opts.interactive==='on' || (opts.interactive==='auto' && process.stdin.isTTY && process.stdout.isTTY && opts.output!=='-' && opts.markdown!=='-')) {
     await interactiveReview(report,opts);
   }

@@ -19,7 +19,8 @@
     "start": "astro dev",
     "ui": "node packages/autoskills/index.mjs ui",
     "desk": "node packages/autoskills/index.mjs ui",
-    "cli": "node packages/autoskills/index.mjs"
+    "cli": "node packages/autoskills/index.mjs",
+    "discover:skills:quality": "pnpm --dir packages/autoskills discover:skills:quality"
   },
   "dependencies": {
     "@tailwindcss/vite": "4.3.3",

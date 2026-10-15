@@ -118,6 +118,26 @@ This matcher remains deterministic, uses no LLM and **does not install, approve,
 or security-audit any skill**. Inspect the complete upstream files and license
 before editing the map; retain the normal audited `sync:skills` and
 `validate:registry` workflow.
+### High-quality discovery preset and API cache
+
+Run the high-quality preset from the repository root:
+
+```fish
+GITHUB_TOKEN=(gh auth token) pnpm discover:skills:quality
+```
+
+This calls the package's `discover:skills:quality` script with both APIs,
+`--min-score 55`, star-sorted Skills Directory search, deeper search/detail
+limits, up to 120 GitHub repository verification attempts, persistent cache,
+and the interactive review selector. Run `gh auth login` first if needed.
+
+Persistent discovery caching is enabled by default. Successful JSON requests
+are cached for six hours for registries, at most one hour for mutable GitHub
+metadata, and 30 days for immutable Git blobs. The cache is located under
+`$XDG_CACHE_HOME/autoskills/discovery-v1` (or `~/.cache/autoskills/discovery-v1`).
+Cache entries are separated by authentication token hashes, not plaintext tokens.
+Use `--no-cache` or `--clear-cache` when invoking the discovery script directly.
+
 ## Supported Technologies
 
 `autoskills` detects **151 technologies** and **33 technology combos** from `package.json`, project manifests, Gradle files, and configuration files. The following table covers every technology in `SKILLS_MAP`, including Rails, Django, FastAPI, and pytest.
