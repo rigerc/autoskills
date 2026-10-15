@@ -1397,6 +1397,383 @@ export const SKILLS_MAP: Technology[] = [
     detect: { configFiles: ["CMakeLists.txt"] },
     skills: [],
   },
+  // Developer tooling — task runners and local environments
+  {
+    id: "viteplus",
+    name: "Vite+",
+    detect: {
+      packages: ["vite-plus"],
+      configFileContent: {
+        files: ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"],
+        patterns: [
+          "from 'vite-plus'",
+          'from "vite-plus"',
+          "require('vite-plus')",
+          'require("vite-plus")',
+        ],
+      },
+    },
+    skills: [],
+  },
+  {
+    id: "just",
+    name: "Just",
+    detect: {
+      configFiles: ["justfile", "Justfile", "JUSTFILE", ".justfile"],
+    },
+    skills: [],
+  },
+  {
+    id: "taskfile",
+    name: "Task",
+    detect: {
+      configFiles: [
+        "Taskfile.yml",
+        "Taskfile.yaml",
+        "Taskfile.dist.yml",
+        "Taskfile.dist.yaml",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "make",
+    name: "GNU Make / Make",
+    detect: {
+      configFiles: ["Makefile", "makefile", "GNUmakefile", "BSDmakefile"],
+    },
+    skills: [],
+  },
+  {
+    id: "mise",
+    name: "mise",
+    detect: {
+      configFiles: [
+        "mise.toml",
+        ".mise.toml",
+        ".config/mise.toml",
+        ".config/mise/config.toml",
+        ".mise/config.toml",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "direnv",
+    name: "direnv",
+    detect: { configFiles: [".envrc"] },
+    skills: [],
+  },
+  {
+    id: "pre-commit",
+    name: "pre-commit",
+    detect: {
+      configFiles: [".pre-commit-config.yaml", ".pre-commit-config.yml"],
+      pythonPackages: ["pre-commit"],
+    },
+    skills: [],
+  },
+  {
+    id: "lefthook",
+    name: "Lefthook",
+    detect: {
+      packages: ["lefthook"],
+      configFiles: [
+        "lefthook.yml",
+        "lefthook.yaml",
+        ".lefthook.yml",
+        ".lefthook.yaml",
+        "lefthook.toml",
+        ".lefthook.toml",
+        "lefthook.json",
+        ".lefthook.json",
+        "lefthook.jsonc",
+        ".lefthook.jsonc",
+        ".config/lefthook.yml",
+        ".config/lefthook.yaml",
+        ".config/lefthook.toml",
+        ".config/lefthook.json",
+        ".config/lefthook.jsonc",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "husky",
+    name: "Husky",
+    detect: {
+      packages: ["husky"],
+      configFiles: [".husky"],
+    },
+    skills: [],
+  },
+  {
+    id: "lint-staged",
+    name: "lint-staged",
+    detect: {
+      packages: ["lint-staged"],
+      configFiles: [
+        ".lintstagedrc",
+        ".lintstagedrc.json",
+        ".lintstagedrc.yml",
+        ".lintstagedrc.yaml",
+        "lint-staged.config.js",
+        "lint-staged.config.cjs",
+        "lint-staged.config.mjs",
+        "lint-staged.config.ts",
+      ],
+    },
+    skills: [],
+  },
+
+  // Developer tooling — release automation and dependency upkeep
+  {
+    id: "changesets",
+    name: "Changesets",
+    detect: {
+      packages: ["@changesets/cli"],
+      configFiles: [".changeset/config.json"],
+    },
+    skills: [],
+  },
+  {
+    id: "semantic-release",
+    name: "semantic-release",
+    detect: {
+      packages: ["semantic-release"],
+      configFiles: [
+        ".releaserc",
+        ".releaserc.json",
+        ".releaserc.yml",
+        ".releaserc.yaml",
+        ".releaserc.js",
+        ".releaserc.cjs",
+        "release.config.js",
+        "release.config.cjs",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "commitlint",
+    name: "commitlint",
+    detect: {
+      packages: ["@commitlint/cli", "@commitlint/config-conventional"],
+      configFiles: [
+        "commitlint.config.js",
+        "commitlint.config.cjs",
+        "commitlint.config.mjs",
+        "commitlint.config.ts",
+        ".commitlintrc",
+        ".commitlintrc.json",
+        ".commitlintrc.yml",
+        ".commitlintrc.yaml",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "renovate",
+    name: "Renovate",
+    detect: {
+      packages: ["renovate"],
+      configFiles: [
+        "renovate.json",
+        "renovate.json5",
+        ".renovaterc",
+        ".renovaterc.json",
+        ".github/renovate.json",
+        ".github/renovate.json5",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "dependabot",
+    name: "Dependabot",
+    detect: {
+      configFiles: [".github/dependabot.yml", ".github/dependabot.yaml"],
+    },
+    skills: [],
+  },
+
+  // Developer tooling — monorepos, bundlers, and formatters
+  {
+    id: "nx",
+    name: "Nx",
+    detect: {
+      packages: ["nx"],
+      packagePatterns: [/^@nx\//, /^@nrwl\//],
+      configFiles: ["nx.json"],
+    },
+    skills: [],
+  },
+  {
+    id: "moonrepo",
+    name: "moonrepo",
+    detect: {
+      packages: ["@moonrepo/cli"],
+      configFiles: [
+        ".moon/workspace.yml",
+        ".moon/workspace.yaml",
+        ".moon/workspace.pkl",
+        "moon.yml",
+        "moon.pkl",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "prettier",
+    name: "Prettier",
+    detect: {
+      packages: ["prettier"],
+      configFiles: [
+        ".prettierrc",
+        ".prettierrc.json",
+        ".prettierrc.yml",
+        ".prettierrc.yaml",
+        ".prettierrc.js",
+        ".prettierrc.cjs",
+        ".prettierrc.mjs",
+        "prettier.config.js",
+        "prettier.config.cjs",
+        "prettier.config.mjs",
+        "prettier.config.ts",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "tsup",
+    name: "tsup",
+    detect: {
+      packages: ["tsup"],
+      configFiles: [
+        "tsup.config.ts",
+        "tsup.config.js",
+        "tsup.config.mjs",
+        "tsup.config.mts",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "tsdown",
+    name: "tsdown",
+    detect: {
+      packages: ["tsdown"],
+      configFiles: [
+        "tsdown.config.ts",
+        "tsdown.config.js",
+        "tsdown.config.mjs",
+        "tsdown.config.mts",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "rolldown",
+    name: "Rolldown",
+    detect: {
+      packages: ["rolldown", "rolldown-vite"],
+      configFiles: [
+        "rolldown.config.ts",
+        "rolldown.config.js",
+        "rolldown.config.mjs",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "esbuild",
+    name: "esbuild",
+    detect: {
+      packages: ["esbuild"],
+    },
+    skills: [],
+  },
+  {
+    id: "webpack",
+    name: "webpack",
+    detect: {
+      packages: ["webpack"],
+      configFiles: [
+        "webpack.config.js",
+        "webpack.config.cjs",
+        "webpack.config.mjs",
+        "webpack.config.ts",
+      ],
+    },
+    skills: [],
+  },
+  {
+    id: "rspack",
+    name: "Rspack",
+    detect: {
+      packages: ["@rspack/core", "@rspack/cli"],
+      configFiles: [
+        "rspack.config.ts",
+        "rspack.config.js",
+        "rspack.config.mjs",
+        "rspack.config.cjs",
+      ],
+    },
+    skills: [],
+  },
+
+  // Developer tooling — Python and multi-language builds
+  {
+    id: "uv",
+    name: "uv",
+    detect: {
+      configFiles: ["uv.lock"],
+      configFileContent: {
+        files: ["pyproject.toml"],
+        patterns: ["[tool.uv]", "[tool.uv.sources]", "[tool.uv.workspace]"],
+      },
+    },
+    skills: [],
+  },
+  {
+    id: "poetry",
+    name: "Poetry",
+    detect: {
+      configFiles: ["poetry.lock"],
+      configFileContent: {
+        files: ["pyproject.toml"],
+        patterns: ["[tool.poetry]", "[tool.poetry.dependencies]"],
+      },
+    },
+    skills: [],
+  },
+  {
+    id: "ruff",
+    name: "Ruff",
+    detect: {
+      configFiles: ["ruff.toml", ".ruff.toml"],
+      pythonPackages: ["ruff"],
+      configFileContent: {
+        files: ["pyproject.toml"],
+        patterns: ["[tool.ruff]", "[tool.ruff.lint]", "[tool.ruff.format]"],
+      },
+    },
+    skills: [],
+  },
+  {
+    id: "bazel",
+    name: "Bazel",
+    detect: {
+      configFiles: [
+        "MODULE.bazel",
+        "WORKSPACE.bazel",
+        "WORKSPACE",
+        ".bazelrc",
+        "BUILD.bazel",
+      ],
+    },
+    skills: [],
+  },
 ];
 
 // ── Combo Skills Map (cross-technology) ──────────────────────
