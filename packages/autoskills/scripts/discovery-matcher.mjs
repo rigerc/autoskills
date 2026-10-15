@@ -11,20 +11,29 @@ const ALIASES = {
   cpp: ['c++','cpp','c plus plus'],
   dotnet: ['.net','dotnet','dot net','asp.net','aspnet'],
   nextjs: ['next.js','nextjs','next js'],
-  nodejs: ['node.js','nodejs','node js'],
-  reactnative: ['react native','react-native'],
+  node: ['node.js','nodejs','node js'],
+  'react-native': ['react native','reactnative'],
+  'tanstack-query': ['tanstack query','tan stack query'],
+  'react-router': ['react router','reactrouter'],
+  'react-hook-form': ['react hook form','rhf'],
+  openai: ['openai','open ai','openai sdk'],
+  langchain: ['langchain','lang chain'],
+  'postgres-ruby': ['postgres','postgresql','postgres ruby'],
   go: ['golang','go programming','go language','go'],
   postgres: ['postgresql','postgres'],
   shadcn: ['shadcn/ui','shadcn ui','shadcn'],
   typescript: ['typescript','type script'],
   'github-actions': ['github actions','github action'],
-  'openai-sdk': ['openai sdk','openai'],
+  'anthropic-sdk': ['anthropic sdk','anthropic'],
   'mcp-sdk': ['model context protocol','mcp sdk','mcp'],
   'scikit-learn': ['scikit learn','sklearn'],
 };
 
 export function norm(value) {
   return String(value ?? '')
+    // Preserve established mixed-case product spellings before splitting camel case.
+    .replace(/\b(openai|github|postgresql|typescript|javascript|fastapi|fastmcp|graphql|langchain|tanstack|huggingface|nextjs|nodejs|golang)\b/gi,
+      word => word.toLowerCase())
     .replace(/c\+\+/gi, ' cpp ')
     .replace(/c#/gi, ' csharp ')
     .replace(/(^|[^a-z])\.net\b/gi, '$1 dotnet ')
