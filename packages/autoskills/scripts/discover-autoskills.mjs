@@ -11,24 +11,21 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { norm, phrase, unique, basename, signals, domain,
+  bestMatches, createQueryPlanner, parseSkillMarkdown } from './discovery-matcher.mjs';
 
 const DEFAULT_DIRECTORY_API = 'https://www.skillsdirectory.com/api/registry';
 const DEFAULT_SKILLSMD_API = 'https://skillsmd.dev/api';
 const DEFAULT_GITHUB_API = 'https://api.github.com';
-const STOP = new Set([
-  'a','an','and','app','application','best','build','cli','client','code','coding',
-  'core','dev','development','developer','for','framework','guide','guides','js',
-  'kit','lib','library','new','of','pattern','patterns','plugin','sdk','skill',
-  'skills','test','tool','tools','the','ts','use','web','with'
-]);
+
 const REPO_RE = /^[a-z\d_.-]+\/[a-z\d_.-]+$/i;
 
 function options(argv) {
   const out = {
     repoRoot: null, tech: [], category: '', sort: 'recent', limit: 50,
-    pages: 1, recentPages: 1, categoryPages: 1, queriesPerTech: 1, directorySearches: 60, minScore: 35,
+    pages: 1, recentPages: 1, categoryPages: 1, queriesPerTech: 3, directorySearches: 60, minScore: 35,
     detailsLimit: 35, verifyLimit: 25, maxPerTech: 5,
     output: 'skills-discovery.json', markdown: 'skills-discovery.md',
     selectionOutput: 'skills-discovery.selected.json',
@@ -69,7 +66,7 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --pages N             Pages per technology query (default: 1)
   --recent-pages N      Also scan N global recent pages (default: 1)
   --category-pages N    Scan N pages per relevant category for tag-only matches (default: 1)
-  --queries-per-tech N  Name/ID/package queries per technology (default: 1)
+  --queries-per-tech N  Name/ID/package queries per technology (default: 3)
   --directory-searches N Maximum total directory text searches (default: 60)
   --min-score N         Minimum semantic relevance (default: 35)
   --details-limit N     Fetch details for top N candidates (default: 35)
@@ -129,105 +126,7 @@ function pkgRoot(root) {
   const sub = join(root,'packages/autoskills');
   return existsSync(join(sub,'skills-map.ts')) ? sub : root;
 }
-function norm(value) {
-  return String(value ?? '')
-    .replace(/([a-z])([A-Z])/g,'$1 $2')
-    .toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
-}
-function tokens(v) { return norm(v).split(' ').filter(x=>x.length >= 2 && !STOP.has(x)); }
-function phrase(hay, needle) {
-  return !!needle && !!hay && (` ${hay} `).includes(` ${needle} `);
-}
-function unique(xs) { return [...new Set(xs.filter(Boolean))]; }
-function basename(path) { return path.split('/').filter(Boolean).at(-1) || ''; }
 
-function signals(tech) {
-  const detect=tech.detect || {};
-  const configBlocks = Array.isArray(detect.configFileContent)
-    ? detect.configFileContent : detect.configFileContent ? [detect.configFileContent] : [];
-  const distinctPatterns = configBlocks.flatMap(b=>b.patterns||[])
-    .map(String).filter(x=>x.length>=4 && x.length<=60 && !/^(?:sourceCompatibility|targetCompatibility|manifest_version)$/i.test(x));
-  const packagePatterns = (detect.packagePatterns||[])
-    .map(String).map(x=>x.replace(/^\//,'').replace(/\/$/,'').replaceAll('\\',''))
-    .filter(x=>x.length>=4 && x.length<=50 && !x.includes('.*'));
-  const seeds = unique([
-    tech.id, tech.name,
-    ...(detect.packages || []), ...(detect.pythonPackages || []), ...(detect.gems || []),
-    ...(detect.configFiles || []).map(v=>basename(v).replace(/\.[^.]+$/,'')),
-    ...distinctPatterns, ...packagePatterns,
-  ]);
-  const strong = unique([norm(tech.id),norm(tech.name)]);
-  const packageSignals = unique(seeds.slice(2).map(norm))
-    .filter(s=>s.length>=3 && (s.includes(' ') || !STOP.has(s)));
-  return { tech, strong, packages: packageSignals, tokens: unique(seeds.flatMap(tokens)) };
-}
-function queriesFor(profile, count) {
-  const primary = unique([profile.tech.name, profile.tech.id.replaceAll('-',' ')]).filter(x=>norm(x).length>1);
-  const extras = profile.packages
-    .filter(x=>x.length>=4 && !primary.some(y=>norm(y)===x))
-    .sort((a,b)=>b.length-a.length);
-  return unique([...primary.slice(0,1),...extras,...primary.slice(1)])
-    .slice(0,count);
-}
-function domain(tech) {
-  const hay = norm([tech.id,tech.name,...(tech.detect?.packages||[])].join(' '));
-  if (/postgres|database|mongo|prisma|drizzle|redis|sql|firebase|convex|supabase|neon|sqlite|graph ?ql/.test(hay)) return new Set(['databases','data-analytics','development']);
-  if (/docker|kubernetes|helm|cloud|terraform|azure|vercel|netlify|ci|github actions|gitlab|devops|deploy|observab|sentry/.test(hay)) return new Set(['devops-cloud','development','tools-automation']);
-  if (/vitest|jest|test|playwright|cypress|eslint|biome|prettier|lint|quality/.test(hay)) return new Set(['testing-qa','code-review-quality','development']);
-  if (/openai|anthropic|mcp|agent|langchain|hugging ?face|ai sdk/.test(hay)) return new Set(['ai-agents','development','tools-automation']);
-  if (/react|vue|svelte|angular|tailwind|css|next ?js|nuxt|design|storybook|frontend|flutter/.test(hay)) return new Set(['development','design-ux','testing-qa']);
-  if (/security|auth|clerk|oauth|sso/.test(hay)) return new Set(['security','development']);
-  return new Set(['development','tools-automation','documentation']);
-}
-function score(skill, profile) {
-  const title=norm(skill.name),slug=norm(skill.slug),desc=norm(skill.description);
-  const tags=unique([...(Array.isArray(skill.tags)?skill.tags:[]), ...(Array.isArray(skill.topics)?skill.topics:[])].map(norm));
-  let strength=0;
-  const reasons=[];
-  for (const term of profile.strong) {
-    if (!term || term.length<2) continue;
-    const t=phrase(title,term), s=phrase(slug,term),d=phrase(desc,term),g=tags.some(x=>phrase(x,term));
-    const value=Math.max(t?42:0,s?38:0,g?36:0,d?25:0);
-    if (value>strength) strength=value;
-    if (value) reasons.push(`technology "${term}" in ${t?'name':s?'slug':g?'tags':'description'}`);
-  }
-  // Package names from the map's existing detection rules are independent evidence.
-  let packageStrength=0;
-  for (const pkg of profile.packages) {
-    if (!pkg || pkg.length<3) continue;
-    const t=phrase(title,pkg),s=phrase(slug,pkg),g=tags.some(x=>phrase(x,pkg)),d=phrase(desc,pkg);
-    const value=Math.max(t?30:0,s?28:0,g?28:0,d?18:0);
-    if (value>packageStrength) packageStrength=value;
-    if (value>=18 && reasons.length<6) reasons.push(`detected package "${pkg}"`);
-  }
-  const matched = Math.max(strength, packageStrength);
-  // A shared category without any technology/package evidence is NOT a match.
-  if (matched===0) return null;
-  let points=matched;
-  if (strength && packageStrength) points+=Math.min(10,Math.floor(packageStrength/3));
-  const supportingTags=tags.filter(t=>profile.tokens.some(w=>w.length>=4 && phrase(t,w)));
-  points+=Math.min(12,supportingTags.length*4);
-  if (supportingTags.length) reasons.push(`related tags: ${supportingTags.slice(0,3).join(', ')}`);
-  const category=norm(skill.category).replaceAll(' ','-');
-  if (category && domain(profile.tech).has(category)) { points+=7; reasons.push(`category: ${skill.category}`); }
-  else if (category && /marketing|lifestyle|health|education-personal|content/.test(category)) points-=8;
-  if (skill.verified===true) {points+=5;reasons.push('Skills Directory verified (not a security audit)');}
-  if (skill.trending===true || skill.hot===true) { points+=2; reasons.push('trending/hot on SkillsMD'); }
-  const installs=Number(skill.installs||0);
-  if(Number.isFinite(installs) && installs>0) { points+=Math.min(5,Math.floor(Math.log10(installs+1)*1.5)); reasons.push(`${installs} reported installs`); }
-  if(skill.language && profile.strong.some(v=>v===norm(skill.language))) {points+=2;reasons.push(`repository language: ${skill.language}`);}
-  const stars=Number(skill.github?.stars??skill.stars??0);
-  if (Number.isFinite(stars) && stars>0) points+=Math.min(7,Math.floor(Math.log10(stars+1)*3));
-  // Detail-only metadata: tool requirements and platform compatibility.
-  const tools=Array.isArray(skill.requiresTools)?skill.requiresTools.map(norm):[];
-  if (tools.some(t=>profile.strong.some(p=>phrase(t,p)) || profile.packages.some(p=>phrase(t,p)))) {
-    points+=3; reasons.push('matching required tool');
-  }
-  return { id:profile.tech.id, name:profile.tech.name, score:points, reasons:unique(reasons).slice(0,7) };
-}
-function bestMatches(skill,profiles,minScore) {
-  return profiles.map(p=>score(skill,p)).filter(m=>m && m.score>=minScore).sort((a,b)=>b.score-a.score);
-}
 function listSkillPaths(map,manifest) {
   const paths = new Set();
   const names = new Set();
@@ -274,47 +173,49 @@ function urlFor(base,path,params={}) {
 async function findDirectory(opts,profiles) {
   const byKey=new Map(), errors=[];
   const stats={requests:0,rows:0};
-  const jobs=[{q:'',category:opts.category,sort:'recent',pages:opts.recentPages}];
-  // The API searches name/description, NOT tags. A category sweep is needed
-  // to discover skills whose tags match technologies but whose titles do not.
-  if (opts.categoryPages) {
+  const sweepJobs=[{q:'',category:opts.category,sort:'recent',pages:opts.recentPages}];
+  // Category sweeps also expose tag-only matches, since q does not search tags.
+  if(opts.categoryPages) {
     const cats=opts.category ? [opts.category] : unique(profiles.flatMap(p=>[...domain(p.tech)]));
-    for(const category of cats) jobs.push({q:'',category,sort:opts.sort,pages:opts.categoryPages});
-  }
-  const firstGaps=[...profiles].sort((a,b)=>(a.tech.skills?.length||0)-(b.tech.skills?.length||0));
-  const searches=unique(firstGaps.flatMap(p=>queriesFor(p,opts.queriesPerTech)));
-  for(const q of searches.slice(0,opts.directorySearches)) {
-    jobs.push({q,category:opts.category,sort:opts.sort,pages:opts.pages});
+    for(const category of cats) sweepJobs.push({q:'',category,sort:opts.sort,pages:opts.categoryPages});
   }
   const seenJobs=new Set();
-  for(const job of jobs) {
+  const fetchJob=async (job,onRows=()=>{}) => {
     const key=norm(job.q)+'|'+job.sort+'|'+(job.category||'');
-    if (seenJobs.has(key)) continue;
+    if(seenJobs.has(key)) return;
     seenJobs.add(key);
     for(let page=0;page<job.pages;page++) {
-      const url=urlFor(opts.apiBase,'',{q:job.q,category:job.category,sort:job.sort,limit:opts.limit,offset:page*opts.limit});
+      const url=urlFor(opts.apiBase,'',{q:job.q,category:job.category,
+        sort:job.sort,limit:opts.limit,offset:page*opts.limit});
       try {
         const body=await jsonFetch(url,{verbose:opts.verbose});
         stats.requests++;
         if(!Array.isArray(body.skills)) throw new Error('Unexpected response: expected {skills:[]}');
         stats.rows+=body.skills.length;
         for(const item of body.skills) {
-          if (!item || !REPO_RE.test(String(item.repository||'')) || !item.slug) continue;
-          const k=`${item.repository.toLowerCase()}:${String(item.slug).toLowerCase()}`;
-          if (!byKey.has(k)) byKey.set(k,item);
+          if(!item || !REPO_RE.test(String(item.repository||'')) || !item.slug) continue;
+          const k=item.repository.toLowerCase()+':'+String(item.slug).toLowerCase();
+          if(!byKey.has(k)) {byKey.set(k,item);onRows(item);}
         }
         if(!body.pagination?.hasMore || body.skills.length===0) break;
         if(page+1<job.pages) await sleep(100);
       } catch(e) {
-        const message=`${job.q||job.category||'(recent)'} page ${page}: ${e.message}`;
-        errors.push(message);
-        console.error(`Directory warning: ${message}`);
-        break;
+        const message=(job.q||job.category||'(recent)')+' page '+page+': '+e.message;
+        errors.push(message);console.error('Directory warning: '+message);break;
       }
     }
-  }
-  if (stats.requests===0) throw new Error(`Could not query Skills Directory; first error: ${errors[0]||'unknown'}`);
-  return {items:[...byKey.values()], stats, errors};
+  };
+  const coverage=new Map(profiles.map(p=>[p.tech.id,0]));
+  const record=item=>{
+    for(const m of bestMatches(item,profiles,opts.minScore))
+      coverage.set(m.id,(coverage.get(m.id)||0)+1);
+  };
+  for(const job of sweepJobs) await fetchJob(job,record);
+  const planner=createQueryPlanner(profiles,opts.queriesPerTech,opts.directorySearches);
+  for(let next; (next=planner.next(coverage));)
+    await fetchJob({q:next.query,category:opts.category,sort:opts.sort,pages:opts.pages},record);
+  if(stats.requests===0) throw new Error('Could not query Skills Directory; first error: '+(errors[0]||'unknown'));
+  return {items:[...byKey.values()],stats,errors};
 }
 /** SkillsMD indexes repositories, not individual SKILL.md files. */
 function normalizeSkillsMd(raw) {
@@ -347,38 +248,54 @@ function extractSkillsMdList(body) {
 }
 async function findSkillsMd(opts,profiles) {
   const byKey=new Map(),errors=[],stats={requests:0,rows:0};
+  const coverage=new Map(profiles.map(p=>[p.tech.id,0]));
   const get=async (url,label)=>{
     try {
       const body=await jsonFetch(url,{verbose:opts.verbose});
       const rows=extractSkillsMdList(body);
-      if(!Array.isArray(body) && !Array.isArray(body?.skills) && !Array.isArray(body?.results) && !Array.isArray(body?.data) && !Array.isArray(body?.items)) throw new Error('Unexpected response: no skills/results array');
+      if(!Array.isArray(body) && !['skills','results','data','items'].some(k=>Array.isArray(body?.[k])))
+        throw new Error('Unexpected response: no skills/results array');
       stats.requests++;stats.rows+=rows.length;
       for(const raw of rows){
         const item=normalizeSkillsMd(raw);
         if(!item) continue;
-        const key=`${item.repository.toLowerCase()}:${item.hint.toLowerCase()}`;
+        const key=item.repository.toLowerCase()+':'+item.hint.toLowerCase();
         const old=byKey.get(key);
         byKey.set(key,old ? {...old,...item,tags:unique([...old.tags,...item.tags])} : item);
+        if(!old) for(const m of bestMatches(item,profiles,opts.minScore))
+          coverage.set(m.id,(coverage.get(m.id)||0)+1);
       }
       return {count:rows.length,body};
-    }catch(e){const message=`${label}: ${e.message}`;errors.push(message);console.error(`SkillsMD warning: ${message}`);return null;}
+    }catch(e){
+      const message=label+': '+e.message;
+      errors.push(message);console.error('SkillsMD warning: '+message);return null;
+    }
   };
   for(let page=1;page<=opts.skillsmdPages;page++) {
-    const r=await get(urlFor(opts.skillsmdApi,'/skills',{filter:opts.skillsmdFilter,page,limit:opts.limit}),`list page ${page}`);
+    const r=await get(urlFor(opts.skillsmdApi,'/skills',
+      {filter:opts.skillsmdFilter,page,limit:opts.limit}),'list page '+page);
     if(!r || r.count===0 || (typeof r.body.pages==='number' && page>=r.body.pages) ||
       (typeof r.body.total==='number' && page*opts.limit>=r.body.total)) break;
   }
-  // Search is valuable because SkillsMD's leaderboard is a bounded list and
-  // its search endpoint also searches tags (unlike Skills Directory's q).
-  const priority=[...profiles].sort((a,b)=>(a.tech.skills?.length||0)-(b.tech.skills?.length||0));
-  const searches=unique(priority.flatMap(p=>queriesFor(p,1))).slice(0,opts.skillsmdSearches);
-  for(const q of searches) await get(urlFor(opts.skillsmdApi,'/search',{q}),`search ${q}`);
+  const planner=createQueryPlanner(profiles,Math.max(2,opts.queriesPerTech),opts.skillsmdSearches);
+  for(let next; (next=planner.next(coverage));)
+    await get(urlFor(opts.skillsmdApi,'/search',{q:next.query}),'search '+next.query);
   return {items:[...byKey.values()],stats,errors};
+}
+function enrichmentOrder(entries, budget) {
+  // Reserve a small portion of detail requests for candidates whose list
+  // metadata is too sparse to match, rather than silently discarding them.
+  const positive=entries.filter(e=>e.score>0);
+  const unknown=entries.filter(e=>e.score===0);
+  const reserve=Math.min(unknown.length,Math.ceil(budget/5));
+  const preferred=[...positive.slice(0,Math.max(0,budget-reserve)),...unknown.slice(0,reserve)];
+  const chosen=new Set(preferred);
+  return [...preferred,...entries.filter(e=>!chosen.has(e))];
 }
 async function enrichSkillsMd(entries,opts) {
   const seen=new Set();
   let count=0;
-  for(const item of entries) {
+  for(const item of enrichmentOrder(entries,opts.detailsLimit)) {
     if(count>=opts.detailsLimit) break;
     const repo=item.skill.repository;
     if(seen.has(repo.toLowerCase())) continue;
@@ -406,8 +323,7 @@ async function enrichSkillsMd(entries,opts) {
 }
 async function enrich(entries,opts) {
   const count=Math.min(opts.detailsLimit,entries.length);
-  for(let i=0;i<count;i++) {
-    const item=entries[i];
+  for(const item of enrichmentOrder(entries,count).slice(0,count)) {
     try {
       const u=urlFor(opts.apiBase,`/${encodeURIComponent(item.skill.slug)}`);
       const body=await jsonFetch(u,{verbose:opts.verbose});
@@ -427,18 +343,34 @@ async function treeFor(repo, opts, cache) {
     const api=opts.githubApi.replace(/\/$/,'');
     const token=process.env.GITHUB_TOKEN||process.env.GH_TOKEN||'';
     const auth={token,verbose:opts.verbose,kind:'github'};
-    const info=await jsonFetch(`${api}/repos/${repo}`,auth);
+    const info=await jsonFetch(api+'/repos/'+repo,auth);
     const branch=info.default_branch;
-    if(typeof branch!=='string'||!branch) throw new Error(`Missing default branch for ${repo}`);
-    const tree=await jsonFetch(`${api}/repos/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,auth);
+    if(typeof branch!=='string'||!branch) throw new Error('Missing default branch for '+repo);
+    const tree=await jsonFetch(api+'/repos/'+repo+'/git/trees/'+encodeURIComponent(branch)+'?recursive=1',auth);
     if(tree.truncated) throw new Error('GitHub returned truncated tree');
     if(!Array.isArray(tree.tree)) throw new Error('Invalid GitHub tree');
-    const dirs=unique(tree.tree.filter(x=>x.type==='blob' && x.mode!=='120000' && (x.path==='SKILL.md'||x.path.endsWith('/SKILL.md')))
-      .map(x=>x.path==='SKILL.md'?'':x.path.slice(0,-'/SKILL.md'.length)));
-    return {branch,dirs};
+    const blobs=new Map();
+    for(const entry of tree.tree) {
+      if(entry.type!=='blob'||entry.mode==='120000'||typeof entry.sha!=='string') continue;
+      if(entry.path!=='SKILL.md' && !entry.path.endsWith('/SKILL.md')) continue;
+      const dir=entry.path==='SKILL.md'?'':entry.path.slice(0,-'/SKILL.md'.length);
+      blobs.set(dir,entry.sha);
+    }
+    return {branch,dirs:[...blobs.keys()],blobs};
   })();
   cache.set(repo,promise);
   return promise;
+}
+async function fetchSkillMarkdown(repo, blobSha, opts) {
+  const api=opts.githubApi.replace(/\/$/,'');
+  const token=process.env.GITHUB_TOKEN||process.env.GH_TOKEN||'';
+  // Fetch the immutable blob referenced by the Git tree, not a moving branch.
+  const blob=await jsonFetch(api+'/repos/'+repo+'/git/blobs/'+blobSha,
+    {token,verbose:opts.verbose,kind:'github'});
+  if(blob.encoding!=='base64'||typeof blob.content!=='string')
+    throw new Error('Unexpected GitHub blob response');
+  if(blob.size>256000) throw new Error('SKILL.md exceeds 256 KB inspection limit');
+  return Buffer.from(blob.content.replace(/\s+/g,''),'base64').toString('utf8');
 }
 function resolveInTree(skill, tree) {
   const slug=norm(skill.slug), title=norm(skill.name);
@@ -474,83 +406,104 @@ function balanceSources(entries) {
   return out;
 }
 function relatedSkillName(base,profiles) {
-  // A multi-skill repository's summary/tags cannot be attributed to every skill.
-  // Require independent signal from the SKILL.md directory name.
   const probe={name:base,slug:base,description:'',tags:[],category:''};
-  return bestMatches(probe,profiles,20);
+  return bestMatches(probe,profiles,20).length>0;
 }
 async function verify(entries,opts,existing) {
-  const cache=new Map(), verified=[];
-  let attempted=0;
-  const usedPaths=new Set(), usedNames=new Map();
-  // Limit GitHub verifications, not just successes, to respect rate limits.
+  const cache=new Map(),verified=[],usedPaths=new Map(),usedNames=new Map();
+  const repositories=new Map(),coverage=new Map(opts.profiles.map(p=>[p.tech.id,0]));
   for(const item of entries) {
-    if(attempted>=opts.verifyLimit) break;
-    if(item.source==='skillsdirectory' && item.score<opts.minScore) continue;
+    if(item.score<Math.min(15,opts.minScore)) continue;
+    const key=item.skill.repository.toLowerCase();
+    if(!repositories.has(key)) repositories.set(key,[]);
+    repositories.get(key).push(item);
+  }
+  const remaining=[...repositories.values()];
+  let attempted=0;
+  while(remaining.length && attempted<opts.verifyLimit) {
+    // A limited verification budget is allocated across unique repos, favoring
+    // candidates for technologies not yet represented in verified results.
+    remaining.sort((a,b)=>{
+      const priority=group=>Math.max(...group.flatMap(item=>item.matches.map(m=>
+        m.relevanceScore+Math.max(0,3-(coverage.get(m.id)||0))*20)),0);
+      return priority(b)-priority(a) ||
+        b[0].score-a[0].score ||
+        a[0].skill.repository.localeCompare(b[0].skill.repository);
+    });
+    const group=remaining.shift();
+    const repo=group[0].skill.repository;
     attempted++;
-    const repo=item.skill.repository;
     try {
       const tree=await treeFor(repo,opts,cache);
-      let paths=[];
-      if(item.source==='skillsdirectory') {
-        const resolved=resolveInTree(item.skill,tree);
-        if(resolved.error){item.notes.push(resolved.error);continue;}
-        paths=[resolved.dir];
-      } else {
-        // SkillsMD is repo-level: inspect actual SKILL.md directories and match
-        // their names to skill-map technologies. Repo-wide tags are supporting
-        // evidence only if there are multiple SKILL.md files.
-        if(tree.dirs.length>250){item.notes.push('Too many SKILL.md paths for safe enumeration');continue;}
-        paths=tree.dirs.filter(dir=>{
-          if(tree.dirs.length===1) return true;
-          const name=basename(dir)||basename(repo);
-          return relatedSkillName(name,opts.profiles).length>0;
-        });
-        if(!paths.length){item.notes.push('No specific SKILL.md paths matched technologies');continue;}
+      const candidates=new Map();
+      for(const item of group) {
+        let paths=[];
+        if(item.source==='skillsdirectory') {
+          const resolved=resolveInTree(item.skill,tree);
+          if(resolved.error){item.notes.push(resolved.error);continue;}
+          paths=[resolved.dir];
+        } else {
+          if(tree.dirs.length>250) {
+            item.notes.push('Too many SKILL.md paths for safe enumeration');continue;
+          }
+          // Small repositories may have descriptive frontmatter but generic
+          // directory names; inspect their actual content instead of dropping them.
+          paths=tree.dirs.length<=25 ? tree.dirs :
+            tree.dirs.filter(dir=>relatedSkillName(basename(dir)||basename(repo),opts.profiles) ||
+              norm(dir).includes(norm(item.skill.hint)));
+        }
+        for(const dir of paths) {
+          if(!candidates.has(dir)) candidates.set(dir,[]);
+          candidates.get(dir).push(item);
+        }
       }
-      for(const directory of paths) {
+      let checked=0;
+      for(const [directory,items] of candidates) {
+        if(checked>=25) {for(const item of items)item.notes.push('Per-repository content inspection capped at 25');break;}
+        checked++;
         const skillName=basename(directory)||basename(repo);
         if(!/^[a-z0-9][a-z0-9_.-]*$/i.test(skillName)) continue;
-        const path=`${repo}/${skillName}`;
+        const path=repo+'/'+skillName;
         if(existing.paths.has(path.toLowerCase()) || existing.names.has(skillName.toLowerCase())) continue;
-        const skillLevel={...item.skill};
-        if(item.source==='skillsmd') {
-          skillLevel.name=skillName;
-          skillLevel.slug=skillName;
-          // In a multi-skill repo, score the skill's own directory name; repository
-          // topics and description can corroborate but never establish its identity.
-          if(tree.dirs.length>1) {
-            skillLevel.description='';
-            skillLevel.tags=[];
-            skillLevel.topics=[];
-          }
-        }
-        const matches=bestMatches(skillLevel,opts.profiles,opts.minScore);
+        if(!tree.blobs.has(directory)) continue;
+        let parsed;
+        try {parsed=parseSkillMarkdown(await fetchSkillMarkdown(repo,tree.blobs.get(directory),opts),skillName);}
+        catch(e) {for(const item of items)item.notes.push('Skill content unavailable: '+e.message);continue;}
+        const level={...parsed,slug:skillName,
+          verified:items.some(e=>e.skill.verified===true),
+          category:items.find(e=>e.skill.category)?.skill.category||'',
+          stars:Math.max(...items.map(e=>Number(e.skill.stars||e.skill.github?.stars||0)),0),
+          installs:Math.max(...items.map(e=>Number(e.skill.installs||0)),0)};
+        const matches=bestMatches(level,opts.profiles,opts.minScore,{stage:'final'});
         if(!matches.length) continue;
-        const githubUrl=`https://github.com/${repo}/tree/${encodeURIComponent(tree.branch)}${directory?'/'+directory.split('/').map(encodeURIComponent).join('/'):''}`;
-        const evidence={
-          source:item.source, skill:item.skill, notes:item.notes,
-          skillPath:path,skillName,directoryPath:directory,githubUrl,
-          matches,score:matches[0].score,
-          confidence:item.source==='skillsmd'?'GitHub SKILL.md path (repo-level directory)':'GitHub SKILL.md path (directory entry)',
-        };
-        const prev=usedPaths.has(path.toLowerCase()) ? verified.find(x=>x.skillPath.toLowerCase()===path.toLowerCase()) : null;
-        if(prev) {
-          prev.sources.push(item.source);
-          prev.evidence.push(evidence);
-          if(evidence.score>prev.score){prev.score=evidence.score;prev.matches=evidence.matches;}
+        const collision=usedNames.get(skillName.toLowerCase());
+        if(collision && collision!==path.toLowerCase()) {
+          for(const item of items)item.notes.push('Registry name collision: '+skillName);
           continue;
         }
-        // Different sources cannot occupy the same registry basename.
-        const collision=usedNames.get(skillName.toLowerCase());
-        if(collision && collision.toLowerCase()!==path.toLowerCase()) {item.notes.push(`Registry name collision: ${skillName}`);continue;}
-        usedNames.set(skillName.toLowerCase(),path);
-        usedPaths.add(path.toLowerCase());
-        verified.push({...evidence,sources:[item.source],evidence:[evidence]});
+        const prev=usedPaths.get(path.toLowerCase());
+        const githubUrl='https://github.com/'+repo+'/tree/'+encodeURIComponent(tree.branch)+
+          (directory?'/'+directory.split('/').map(encodeURIComponent).join('/'):'' );
+        const evidence=items.map(item=>({
+          source:item.source,skill:item.skill,notes:item.notes,skillPath:path,
+          skillName,directoryPath:directory,githubUrl,skillBlobSha:tree.blobs.get(directory),matches,score:matches[0].score,
+          confidence:'GitHub SKILL.md blob and frontmatter verified',
+        }));
+        if(prev) {
+          prev.sources=unique([...prev.sources,...evidence.map(e=>e.source)]);
+          prev.evidence.push(...evidence);
+          continue;
+        }
+        const result={...evidence[0],sources:unique(evidence.map(e=>e.source)),evidence};
+        usedPaths.set(path.toLowerCase(),result);
+        usedNames.set(skillName.toLowerCase(),path.toLowerCase());
+        verified.push(result);
+        for(const m of matches) coverage.set(m.id,(coverage.get(m.id)||0)+1);
       }
-    }catch(e){item.notes.push(`GitHub verification unavailable: ${e.message}`);}
+    }catch(e){for(const item of group)item.notes.push('GitHub verification unavailable: '+e.message);}
   }
-  return verified.sort((a,b)=>b.score-a.score);
+  return verified.sort((a,b)=>b.score-a.score ||
+    a.skillPath.localeCompare(b.skillPath));
 }
 function safeText(x) {return String(x??'').replace(/[\r\n]+/g,' ').replaceAll('|','\\|');}
 function markdownReport(report,opts) {
@@ -558,7 +511,7 @@ function markdownReport(report,opts) {
     '# AutoSkills — registry skill discoveries','',
     `Generated: ${report.generatedAt}`,'',
     `Mapped **${report.stats.technologies}** technologies. Skills Directory: **${report.stats.directoryRequests}** requests / **${report.stats.uniqueDirectorySkills}** entries. SkillsMD: **${report.stats.skillsmdRequests}** requests / **${report.stats.uniqueSkillsMdRepos}** repository entries.`,
-    `Resolved **${report.matches.length}** new, non-colliding SKILL.md paths using GitHub (at most ${opts.verifyLimit} ranked verification attempts).`,'',
+    `Resolved **${report.matches.length}** new, non-colliding SKILL.md paths using GitHub (at most ${opts.verifyLimit} unique repository verification attempts).`,'',
     '**These are suggestions, not installed or security-approved skills.** Review every upstream file and license before editing `skills-map.ts`.','',
   ];
   const grouped=new Map();
@@ -575,7 +528,9 @@ function markdownReport(report,opts) {
       lines.push(`- **\`${item.skillPath}\`** — score **${match.score}**; sources: **${item.sources.join(', ')}**`);
       if(d?.description) lines.push(`  - Directory: ${safeText(d.name)} — ${safeText(d.description).slice(0,260)}`);
       if(sm?.description) lines.push(`  - SkillsMD repository: ${safeText(sm.name)} — ${safeText(sm.description).slice(0,260)}`);
+      lines.push(`  - Relevance: **${match.relevanceScore}**; quality: **${match.qualityScore}** (tie-breaker)`);
       lines.push(`  - Evidence: ${safeText(match.reasons.join('; '))}`);
+      if(item.skillBlobSha) lines.push(`  - Verified SKILL.md Git blob: \`${item.skillBlobSha}\``);
       const links=[`[SKILL.md directory](${item.githubUrl})`];
       if(d?.slug) links.push(`[Skills Directory](https://www.skillsdirectory.com/api/registry/${encodeURIComponent(d.slug)})`);
       if(sm?.repository) links.push(`[SkillsMD](https://skillsmd.dev/api/skill?repo=${encodeURIComponent(sm.repository)})`);
@@ -844,21 +799,23 @@ async function main() {
   for(const skill of found.items) {
     if(!REPO_RE.test(String(skill.repository||''))) continue;
     const matches=bestMatches(skill,profiles,opts.minScore);
-    if(!matches.length) continue;
-    directoryCandidates.push({source:'skillsdirectory',skill,matches,score:matches[0].score,notes:[]});
+    // Retain sparse list entries for bounded detail enrichment; richer metadata
+    // may reveal an actual skill-level match that the list omitted.
+    directoryCandidates.push({source:'skillsdirectory',skill,matches,score:matches[0]?.score??0,notes:[]});
   }
   directoryCandidates.sort((a,b)=>b.score-a.score);
   await enrich(directoryCandidates,opts);
   const mdCandidates=[];
   for(const skill of md.items) {
     const matches=bestMatches(skill,profiles,opts.minScore);
-    if(!matches.length) continue;
-    mdCandidates.push({source:'skillsmd',skill,matches,score:matches[0].score,notes:[]});
+    mdCandidates.push({source:'skillsmd',skill,matches,score:matches[0]?.score??0,notes:[]});
   }
   mdCandidates.sort((a,b)=>b.score-a.score);
   await enrichSkillsMd(mdCandidates,opts);
   const candidates=[...directoryCandidates,...mdCandidates]
-    .filter(x=>x.score>=opts.minScore)
+    // Provisional retrieval cutoff: final min-score and eligibility are applied
+    // only after reading the immutable SKILL.md content.
+    .filter(x=>x.score>=Math.min(15,opts.minScore))
     .sort((a,b)=>b.score-a.score || a.skill.repository.localeCompare(b.skill.repository));
   const verified=await verify(balanceSources(candidates),opts,existing);
   const final=verified.map(item=>{
@@ -881,7 +838,8 @@ async function main() {
     };
     return {
       skillPath:item.skillPath,skillName:item.skillName,directoryPath:item.directoryPath,
-      githubUrl:item.githubUrl,confidence:item.confidence,sources:unique(item.sources),
+      githubUrl:item.githubUrl,skillBlobSha:item.skillBlobSha,
+      confidence:item.confidence,sources:unique(item.sources),
       score:item.score,matches:item.matches,directory,skillsmd,
       notes:unique(item.evidence.flatMap(e=>e.notes)),
     };

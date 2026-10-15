@@ -74,6 +74,33 @@ Pi skills are linked into `.pi/skills`. The desk discovers both project skills a
 
 `autoskills ui` also accepts `--port <number>` and `--no-open`.
 
+## Registry skill discovery (maintainer workflow)
+
+Use the review-only discovery script to propose additions to `skills-map.ts`:
+
+```bash
+node --experimental-strip-types packages/autoskills/scripts/discover-autoskills.mjs --repo-root . --tech react,nextjs --no-interactive
+```
+
+Discovery searches Skills Directory and SkillsMD and uses adaptive query allocation
+to favor undercovered technologies. It reserves some detail requests for sparse
+list entries and deduplicates repositories before verification. `--verify-limit`
+counts **unique GitHub repositories**, not listing entries.
+
+Candidate matches are provisional. After resolving a `SKILL.md` path in GitHub's
+tree, the verifier reads that file using its immutable Git blob SHA. It scores
+the skill's own title, description, tags and bounded body text. Repository-level
+topics may locate candidates but cannot establish final relevance. Explicit
+aliases, short ambiguous technology names (such as Go) and negative contexts
+are treated separately. Popularity and metadata contribute at most five
+quality points and cannot establish relevance eligibility.
+
+JSON and Markdown reports show relevance and quality separately, match evidence,
+and the inspected `SKILL.md` blob SHA. The default final `--min-score` is 35.
+This matcher remains deterministic, uses no LLM and **does not install, approve,
+or security-audit any skill**. Inspect the complete upstream files and license
+before editing the map; retain the normal audited `sync:skills` and
+`validate:registry` workflow.
 ## Supported Technologies
 
 `autoskills` detects **151 technologies** and **33 technology combos** from `package.json`, project manifests, Gradle files, and configuration files. The following table covers every technology in `SKILLS_MAP`, including Rails, Django, FastAPI, and pytest.
