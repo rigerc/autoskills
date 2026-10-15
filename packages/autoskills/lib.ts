@@ -378,6 +378,84 @@ export function readGemfile(dir: string): string[] {
   }
 }
 
+// Only consider declared Python dependencies, not arbitrary prose in pyproject.toml.
+// Normalize PEP 503 separators so sentry_sdk and sentry-sdk refer to the same package.
+export function readPythonPackageNames(dir: string): string[] {
+  const packages = new Set<string>();
+
+  function addSpec(spec: string): void {
+    const name = spec.trim().match(/^([a-zA-Z0-9][a-zA-Z0-9._-]*)/);
+    if (name) packages.add(name[1].toLowerCase().replace(/[._]+/g, "-"));
+  }
+
+  function addQuotedSpecs(line: string): void {
+    for (const match of line.matchAll(/["']([^"']+)["']/g)) addSpec(match[1]);
+  }
+
+  try {
+    const content = readFileSync(join(dir, "requirements.txt"), "utf-8");
+    for (const raw of content.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (line && !line.startsWith("#") && !line.startsWith("-")) {
+        addSpec(line);
+      }
+    }
+  } catch {
+    // Missing dependency manifest is normal.
+  }
+
+  for (const file of ["pyproject.toml", "Pipfile"]) {
+    let content: string;
+    try {
+      content = readFileSync(join(dir, file), "utf-8");
+    } catch {
+      continue;
+    }
+
+    let section = "";
+    let inArray = false;
+    for (const raw of content.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+
+      const header = line.match(/^\[([^\]]+)\]$/);
+      if (header) {
+        section = header[1];
+        inArray = false;
+        continue;
+      }
+
+      if (
+        section === "project" ||
+        section === "project.optional-dependencies" ||
+        section === "dependency-groups" ||
+        section === "tool.pdm.dev-dependencies"
+      ) {
+        if (
+          (section === "project" && /^dependencies\s*=\s*\[/.test(line)) ||
+          (section !== "project" && /^[\w.-]+\s*=\s*\[/.test(line))
+        ) {
+          inArray = true;
+        }
+        if (inArray) {
+          addQuotedSpecs(line.split(/\s+#/)[0]);
+          if (line.includes("]")) inArray = false;
+        }
+      } else if (
+        section === "packages" ||
+        section === "dev-packages" ||
+        section === "tool.poetry.dependencies" ||
+        /^tool\.poetry\.group\.[^.]+\.dependencies$/.test(section)
+      ) {
+        const declaration = line.match(/^["']?([a-zA-Z0-9][a-zA-Z0-9._-]*)["']?\s*=/);
+        if (declaration) addSpec(declaration[1]);
+      }
+    }
+  }
+
+  return [...packages];
+}
+
 export function readPackageJson(dir: string): Record<string, unknown> | null {
   try {
     return JSON.parse(readFileSync(join(dir, "package.json"), "utf-8"));
@@ -414,6 +492,7 @@ function detectTechnologiesInDir(
   const allDepsArray = getAllPackageNames(pkg);
   const allDepsSet = new Set(allDepsArray);
   let gemNames: string[] | undefined;
+  let pythonNames: Set<string> | undefined;
   const detected: Technology[] = [];
   const fileContentCache = new Map<string, string | null>();
   const existsCache = new Map<string, boolean>();
@@ -442,6 +521,13 @@ function detectTechnologiesInDir(
 
     if (tech.detect.packages) {
       found = tech.detect.packages.some((p) => allDepsSet.has(p));
+    }
+
+    if (!found && tech.detect.pythonPackages) {
+      if (!pythonNames) pythonNames = new Set(readPythonPackageNames(dir));
+      found = tech.detect.pythonPackages.some((name) =>
+        pythonNames!.has(name.toLowerCase().replace(/[._]+/g, "-")),
+      );
     }
 
     if (!found && tech.detect.packagePatterns) {
