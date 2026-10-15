@@ -282,10 +282,20 @@ async function findSkillsMd(opts,profiles) {
     await get(urlFor(opts.skillsmdApi,'/search',{q:next.query}),'search '+next.query);
   return {items:[...byKey.values()],stats,errors};
 }
+function enrichmentOrder(entries, budget) {
+  // Reserve a small portion of detail requests for candidates whose list
+  // metadata is too sparse to match, rather than silently discarding them.
+  const positive=entries.filter(e=>e.score>0);
+  const unknown=entries.filter(e=>e.score===0);
+  const reserve=Math.min(unknown.length,Math.ceil(budget/5));
+  const preferred=[...positive.slice(0,Math.max(0,budget-reserve)),...unknown.slice(0,reserve)];
+  const chosen=new Set(preferred);
+  return [...preferred,...entries.filter(e=>!chosen.has(e))];
+}
 async function enrichSkillsMd(entries,opts) {
   const seen=new Set();
   let count=0;
-  for(const item of entries) {
+  for(const item of enrichmentOrder(entries,opts.detailsLimit)) {
     if(count>=opts.detailsLimit) break;
     const repo=item.skill.repository;
     if(seen.has(repo.toLowerCase())) continue;
@@ -313,8 +323,7 @@ async function enrichSkillsMd(entries,opts) {
 }
 async function enrich(entries,opts) {
   const count=Math.min(opts.detailsLimit,entries.length);
-  for(let i=0;i<count;i++) {
-    const item=entries[i];
+  for(const item of enrichmentOrder(entries,count).slice(0,count)) {
     try {
       const u=urlFor(opts.apiBase,`/${encodeURIComponent(item.skill.slug)}`);
       const body=await jsonFetch(u,{verbose:opts.verbose});
