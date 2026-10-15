@@ -97,6 +97,29 @@ quality points and cannot establish relevance eligibility.
 
 JSON and Markdown reports show relevance and quality separately, match evidence,
 and the inspected `SKILL.md` blob SHA. The default final `--min-score` is 35.
+
+Persistent response caching is **enabled by default** to reduce repeated registry
+requests and GitHub rate-limit consumption. Registry responses are cached for six
+hours by default, mutable GitHub repository/tree metadata for at most one hour,
+and GitHub blobs addressed by immutable SHA for 30 days. Only successful JSON
+responses are cached. Cache keys include the full URL and a hash of the
+authentication token (never the token itself), and cache files use restricted
+permissions because private GitHub metadata may be present. Each report
+includes cache hit/miss/write statistics.
+
+The cache location defaults to `$XDG_CACHE_HOME/autoskills/discovery-v1` when
+`XDG_CACHE_HOME` is set, otherwise `~/.cache/autoskills/discovery-v1`.
+Control it with `--cache`, `--no-cache`, `--cache-dir DIR`,
+`--cache-ttl-minutes N`, or `--clear-cache` (clears the discovery cache before
+running). Use `--clear-cache` to refresh discovery if upstream metadata changes
+inside the TTL window.
+
+For fish shell, authenticate only for the discovery process:
+
+```fish
+GITHUB_TOKEN=(gh auth token) node --experimental-strip-types packages/autoskills/scripts/discover-autoskills.mjs --repo-root . --source both --cache --interactive
+```
+
 This matcher remains deterministic, uses no LLM and **does not install, approve,
 or security-audit any skill**. Inspect the complete upstream files and license
 before editing the map; retain the normal audited `sync:skills` and
