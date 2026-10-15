@@ -31,6 +31,8 @@ function options(argv) {
     pages: 1, recentPages: 1, categoryPages: 1, queriesPerTech: 1, directorySearches: 60, minScore: 35,
     detailsLimit: 35, verifyLimit: 25, maxPerTech: 5,
     output: 'skills-discovery.json', markdown: 'skills-discovery.md',
+    selectionOutput: 'skills-discovery.selected.json',
+    selectionMarkdown: 'skills-discovery.selected.md', interactive: 'auto',
     apiBase: process.env.SKILLS_DIRECTORY_API || DEFAULT_DIRECTORY_API,
     skillsmdApi: process.env.SKILLSMD_API || DEFAULT_SKILLSMD_API,
     source: 'both', skillsmdPages: 3, skillsmdSearches: 25, skillsmdFilter: 'all',
@@ -45,6 +47,7 @@ function options(argv) {
     '--min-score':'minScore','--details-limit':'detailsLimit',
     '--verify-limit':'verifyLimit','--max-per-tech':'maxPerTech',
     '--output':'output','--markdown':'markdown',
+    '--selection-output':'selectionOutput','--selection-markdown':'selectionMarkdown',
     '--api-base':'apiBase','--github-api':'githubApi',
     '--skillsmd-api':'skillsmdApi', '--source':'source',
     '--skillsmd-pages':'skillsmdPages', '--skillsmd-searches':'skillsmdSearches', '--skillsmd-filter':'skillsmdFilter',
@@ -74,6 +77,10 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --max-per-tech N      Suggestions per technology in markdown (default: 5)
   --output FILE|-       JSON report file (default: skills-discovery.json)
   --markdown FILE|-     Markdown report file (default: skills-discovery.md)
+  --interactive         Force terminal review after discovery (requires a TTY)
+  --no-interactive      Disable terminal review (also automatic in CI/pipes)
+  --selection-output F  Shortlisted candidates JSON (default: skills-discovery.selected.json)
+  --selection-markdown F Shortlisted candidates Markdown (default: skills-discovery.selected.md)
   --api-base URL        Skills Directory endpoint (for tests)
   --skillsmd-api URL    SkillsMD API base (for tests)
   --github-api URL      GitHub API base (for tests)
@@ -87,6 +94,8 @@ by that documentation. --api-base/--github-api support local integration tests.
       process.exit(0);
     }
     if (flag === '--verbose') { out.verbose = true; continue; }
+    if (flag === '--interactive') { out.interactive = 'on'; continue; }
+    if (flag === '--no-interactive') { out.interactive = 'off'; continue; }
     const prop = names[flag];
     if (!prop) throw new Error(`Unknown flag: ${flag} (try --help)`);
     if (argv[i+1] === undefined || argv[i+1].startsWith('--')) throw new Error(`Missing value for ${flag}`);
@@ -588,6 +597,205 @@ function markdownReport(report,opts) {
     'Then run `pnpm --dir packages/autoskills sync:skills` with its normal security review enabled, and `pnpm --dir packages/autoskills validate:registry`. Do not bypass safety review.','');
   return lines.join('\n');
 }
+async function interactiveReview(report, opts) {
+  const { emitKeypressEvents } = await import('node:readline');
+  const input = process.stdin, output = process.stdout;
+  if (!input.isTTY || !output.isTTY || typeof input.setRawMode !== 'function') {
+    throw new Error('Interactive review requires a TTY. Re-run in a terminal, or use --no-interactive.');
+  }
+  if (opts.output === '-' || opts.markdown === '-') {
+    throw new Error('Interactive review cannot be combined with --output - or --markdown -.');
+  }
+  const paths = [opts.output, opts.markdown, opts.selectionOutput, opts.selectionMarkdown].map(p => resolve(p));
+  if (new Set(paths).size !== paths.length) {
+    throw new Error('Selection export paths must be distinct from each other and the main report paths.');
+  }
+  const selected = new Set();
+  const techs = ['all', ...unique(report.matches.flatMap(x => x.matches.map(m => m.id)))];
+  const sources = ['all', 'skillsdirectory', 'skillsmd'];
+  let techIndex = 0, sourceIndex = 0, cursor = 0, top = 0, detailOffset = 0;
+  let search = '', pendingSearch = '', searching = false, selectedOnly = false;
+  let view = 'list', status = 'Space selects candidates; e exports a review shortlist. No skills are installed.';
+  const clean = x => String(x ?? '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const width = () => Math.max(30, output.columns || 100);
+  const height = () => Math.max(12, output.rows || 25);
+  const fit = x => clean(x).slice(0, width() - 1);
+  const visible = () => report.matches.filter(x => {
+    if (selectedOnly && !selected.has(x.skillPath)) return false;
+    if (techs[techIndex] !== 'all' && !x.matches.some(m => m.id === techs[techIndex])) return false;
+    if (sources[sourceIndex] !== 'all' && !x.sources.includes(sources[sourceIndex])) return false;
+    if (search) {
+      const hay = norm([
+        x.skillPath, x.skillName, x.directory?.name, x.directory?.description,
+        x.skillsmd?.name, x.skillsmd?.description, x.directory?.category,
+        ...(x.directory?.tags || []), ...(x.skillsmd?.tags || []),
+        ...(x.skillsmd?.topics || []), ...x.matches.flatMap(m => [m.id, m.name, ...m.reasons])
+      ].join(' '));
+      if (!hay.includes(norm(search))) return false;
+    }
+    return true;
+  });
+  const render = () => {
+    const items = visible();
+    cursor = Math.min(Math.max(0, cursor), Math.max(0, items.length - 1));
+    const limit = Math.max(1, height() - 8);
+    top = Math.max(0, Math.min(top, Math.max(0, items.length - limit)));
+    if (cursor < top) top = cursor;
+    if (cursor >= top + limit) top = cursor - limit + 1;
+    const lines = [
+      fit(`AutoSkills discovery | ${items.length}/${report.matches.length} results | ${selected.size} selected`),
+      fit(`Technology [t]: ${techs[techIndex]} | Source [s]: ${sources[sourceIndex]} | Selected only [v]: ${selectedOnly ? 'yes' : 'no'}`),
+      fit(searching ? `Search: ${pendingSearch}_ (Enter apply, Esc cancel)` : `Search [/]: ${search || '(all)'}`),
+      '-'.repeat(width() - 1)
+    ];
+    if (view === 'help') {
+      lines.push(
+        'Up/Down or j/k: move       PageUp/PageDown: page       Home/End: jump',
+        'Enter: details             Space: select/deselect      a: select visible',
+        '/: search tags, category, description and match evidence',
+        't: change technology      s: change source            v: selected only',
+        'u: deselect all           e: export JSON + Markdown shortlist',
+        'Escape: close details or clear search       q / Ctrl-C: quit',
+        '',
+        'Selections are review suggestions, NOT approved or installed skills.'
+      );
+    } else if (view === 'detail') {
+      const item = items[cursor];
+      if (!item) { view = 'list'; lines.push('No candidates match these filters.'); }
+      else {
+        const details = [
+          `Skill: ${item.skillPath}`,
+          `Score: ${item.score} | ${selected.has(item.skillPath) ? 'SELECTED' : 'not selected'}`,
+          `GitHub directory: ${item.githubUrl}`,
+          `Sources: ${item.sources.join(', ')} | Confidence: ${item.confidence}`,
+          `Category: ${item.directory?.category || 'not provided'}`,
+          `License: ${item.directory?.github?.license || item.skillsmd?.license || 'unknown'}`,
+          `GitHub stars: ${item.directory?.stars ?? item.skillsmd?.stars ?? 'unknown'} | SkillsMD installs: ${item.skillsmd?.installs ?? 'unknown'}`,
+          `Description: ${item.directory?.description || item.skillsmd?.description || '(none)'}`,
+          `Tags: ${unique([...(item.directory?.tags || []), ...(item.skillsmd?.tags || []), ...(item.skillsmd?.topics || [])]).join(', ') || '(none)'}`,
+          ...item.matches.flatMap(m => [
+            `${m.name} (${m.id}): ${m.score} points`,
+            ...m.reasons.map(r => `   - ${r}`)
+          ]),
+          ...(item.notes || []).map(n => `Note: ${n}`),
+          '',
+          'Enter/Esc: back | Space: select | Up/Down: scroll details'
+        ];
+        detailOffset = Math.min(Math.max(0, detailOffset), Math.max(0, details.length - limit));
+        lines.push(...details.slice(detailOffset, detailOffset + limit).map(fit));
+        lines.push(fit(`Detail rows ${detailOffset + 1}-${Math.min(details.length, detailOffset + limit)} of ${details.length}`));
+      }
+    } else {
+      if (!items.length) lines.push('No matches. Change filters with /, t, s or v.');
+      for (let i = top; i < Math.min(items.length, top + limit); i++) {
+        const item = items[i];
+        const mark = selected.has(item.skillPath) ? 'x' : ' ';
+        const tech = item.matches[0]?.id || '?';
+        const src = item.sources.map(s => s === 'skillsdirectory' ? 'D' : 'M').join('+');
+        lines.push(fit(`${cursor === i ? '>' : ' '} [${mark}] ${String(item.score).padStart(3)} ${tech.padEnd(16).slice(0, 16)} ${item.skillPath} [${src}]`));
+      }
+      lines.push(fit(`Showing ${items.length ? top + 1 : 0}-${Math.min(items.length, top + limit)} of ${items.length}`));
+    }
+    lines.push('-'.repeat(width() - 1));
+    lines.push(fit('Up/Down: move | Enter: details | Space: select | /: search | t/s: filters | e: export | ?: help | q: quit'));
+    lines.push(fit(`Status: ${status}`));
+    output.write('\x1b[H\x1b[2J' + lines.slice(0, height()).join('\n'));
+  };
+  const exportShortlist = () => {
+    const matches = report.matches.filter(x => selected.has(x.skillPath));
+    if (!matches.length) { status = 'No selection to export. Use Space or a first.'; return; }
+    const result = { ...report, selectedAt: new Date().toISOString(), matches, stats: { ...report.stats, selected: matches.length } };
+    const write = (path, value) => {
+      const dest = resolve(path);
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, value + '\n');
+    };
+    write(opts.selectionOutput, JSON.stringify(result, null, 2));
+    write(opts.selectionMarkdown, markdownReport(result, opts).replace(
+      '# AutoSkills — registry skill discoveries', '# AutoSkills — review shortlist (not approved)'));
+    status = `Exported ${matches.length} suggestions to ${opts.selectionOutput} and ${opts.selectionMarkdown}`;
+  };
+  return new Promise((done, fail) => {
+    const oldRaw = input.isRaw || false;
+    let finished = false;
+    const finish = (error) => {
+      if (finished) return;
+      finished = true;
+      input.off('keypress', onKey);
+      output.off('resize', render);
+      process.off('SIGTERM', onTermination);
+      input.setRawMode(oldRaw);
+      if (!oldRaw) input.pause();
+      output.write('\x1b[?25h\x1b[?1049l\n');
+      if (error) fail(error);
+      else { console.error(`Interactive review closed. ${selected.size} shortlisted (not approved).`); done(); }
+    };
+    const onTermination = () => { process.exitCode = 143; finish(); };
+    const onKey = (character, key = {}) => {
+      try {
+        if (key.ctrl && key.name === 'c') { finish(); return; }
+        if (searching) {
+          if (key.name === 'escape') { searching = false; status = 'Search cancelled.'; }
+          else if (key.name === 'return') { search = pendingSearch.trim(); searching = false; cursor = 0; top = 0; status = `Filter: ${search || '(all)'}`; }
+          else if (key.name === 'backspace') pendingSearch = pendingSearch.slice(0, -1);
+          else if (character && !key.ctrl && !key.meta && character.length === 1 && character.charCodeAt(0) >= 32 && pendingSearch.length < 120) pendingSearch += character;
+          render(); return;
+        }
+        const items = visible();
+        if (character === 'q') { finish(); return; }
+        if (view === 'help') {
+          if (key.name === 'escape' || key.name === 'return' || character === '?') view = 'list';
+          render(); return;
+        }
+        if (view === 'detail') {
+          if (key.name === 'escape' || key.name === 'return') { view = 'list'; detailOffset = 0; }
+          else if (key.name === 'up' || character === 'k') detailOffset = Math.max(0, detailOffset - 1);
+          else if (key.name === 'down' || character === 'j') detailOffset++;
+          else if (key.name === 'pageup') detailOffset = Math.max(0, detailOffset - Math.max(1, height() - 8));
+          else if (key.name === 'pagedown') detailOffset += Math.max(1, height() - 8);
+          else if (key.name === 'space' || character === ' ') {
+            const item = items[cursor];
+            if (item) selected.has(item.skillPath) ? selected.delete(item.skillPath) : selected.add(item.skillPath);
+          }
+          render(); return;
+        }
+        if (key.name === 'escape') { search = ''; cursor = 0; top = 0; status = 'Search cleared.'; }
+        else if (key.name === 'up' || character === 'k') cursor = Math.max(0, cursor - 1);
+        else if (key.name === 'down' || character === 'j') cursor = Math.min(Math.max(0, items.length - 1), cursor + 1);
+        else if (key.name === 'pageup') cursor = Math.max(0, cursor - Math.max(1, height() - 8));
+        else if (key.name === 'pagedown') cursor = Math.min(Math.max(0, items.length - 1), cursor + Math.max(1, height() - 8));
+        else if (key.name === 'home') cursor = 0;
+        else if (key.name === 'end') cursor = Math.max(0, items.length - 1);
+        else if (key.name === 'space' || character === ' ') {
+          const item = items[cursor];
+          if (item) selected.has(item.skillPath) ? selected.delete(item.skillPath) : selected.add(item.skillPath);
+        }
+        else if (key.name === 'return') { if (items.length) { view = 'detail'; detailOffset = 0; } }
+        else if (character === '/') { searching = true; pendingSearch = search; }
+        else if (character === '?') view = 'help';
+        else if (character === 't') { techIndex = (techIndex + 1) % techs.length; cursor = 0; top = 0; }
+        else if (character === 's') { sourceIndex = (sourceIndex + 1) % sources.length; cursor = 0; top = 0; }
+        else if (character === 'v') { selectedOnly = !selectedOnly; cursor = 0; top = 0; }
+        else if (character === 'a') { for (const item of items) selected.add(item.skillPath); status = `Selected ${selected.size} suggestions.`; }
+        else if (character === 'u') { selected.clear(); status = 'Selection cleared.'; }
+        else if (character === 'e') exportShortlist();
+        render();
+      } catch (e) { status = `Error: ${e.message}`; render(); }
+    };
+    try {
+      emitKeypressEvents(input);
+      input.setRawMode(true);
+      input.resume();
+      output.write('\x1b[?1049h\x1b[?25l');
+      input.on('keypress', onKey);
+      output.on('resize', render);
+      process.on('SIGTERM', onTermination);
+      render();
+    } catch (e) { finish(e); }
+  });
+}
+
 function outputFile(filepath,content) {
   if(filepath==='-') {console.log(content);return;}
   const dest=resolve(filepath);
@@ -597,6 +805,12 @@ function outputFile(filepath,content) {
 }
 async function main() {
   const opts=options(process.argv.slice(2));
+  if(opts.interactive==='on' && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    throw new Error('--interactive requires a TTY terminal; use --no-interactive in pipes and CI.');
+  }
+  if(opts.interactive==='on' && (opts.output==='-' || opts.markdown==='-')) {
+    throw new Error('--interactive cannot be used with --output - or --markdown -.');
+  }
   const root=opts.repoRoot?locateRoot(opts.repoRoot):locateRoot(process.cwd())||locateRoot(dirname(fileURLToPath(import.meta.url)));
   if(!root) throw new Error('Cannot find autoskills checkout. Pass --repo-root /path/to/autoskills');
   const pkg=pkgRoot(root);
@@ -690,5 +904,8 @@ async function main() {
   outputFile(opts.output,JSON.stringify(report,null,2));
   outputFile(opts.markdown,markdownReport(report,opts));
   console.error(`Done: ${report.stats.uniqueDirectorySkills} Skills Directory entries + ${report.stats.uniqueSkillsMdRepos} SkillsMD repos; ${candidates.length} matched entries; ${final.length} new GitHub-verified SKILL.md paths.`);
+  if (opts.interactive==='on' || (opts.interactive==='auto' && process.stdin.isTTY && process.stdout.isTTY && opts.output!=='-' && opts.markdown!=='-')) {
+    await interactiveReview(report,opts);
+  }
 }
 main().catch(e=>{console.error(`Discovery failed: ${e.stack||e}`);process.exitCode=1;});
