@@ -24,6 +24,7 @@ import { clearAutoskillsCache, installAll, securityCheckForSkillPath } from "./i
 import type { InstallSecurityCheck } from "./installer.ts";
 import { checkSkillUpdates, updateSkill } from "./updater.ts";
 import { findGitRepos } from "./repos.ts";
+import { resolveRegistryConfig } from "./config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VERSION: string = (() => {
@@ -589,6 +590,10 @@ async function runProject(
   projectDir: string,
   { command, autoYes, dryRun, verbose, agents }: CliArgs,
 ): Promise<void> {
+  const registryConfig = resolveRegistryConfig(projectDir);
+  if (verbose && Object.keys(registryConfig.registries).length > 0) {
+    log(dim(`   Configured registries: ${Object.keys(registryConfig.registries).join(", ")}`));
+  }
   if (command === "update") {
     log(dim("   Checking installed skills against upstream sources..."));
     const checks = await checkSkillUpdates({
