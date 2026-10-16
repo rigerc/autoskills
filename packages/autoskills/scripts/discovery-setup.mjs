@@ -187,7 +187,8 @@ export async function configureDiscovery(opts, technologies, argv, input = proce
       value => parseDiscoveryYesNo(value) ? 'on' : 'off');
     output.write('Selected ' + opts.source + ' | ' +
       (opts.tech.length ? opts.tech.join(', ') : 'all technologies') +
-      ' | ' + intensity + ' | score >= ' + opts.minScore +\n      ' | GitHub checks <= ' + opts.verifyLimit + ' repositories\n\n');
+      ' | ' + intensity + ' | score >= ' + opts.minScore +
+      ' | GitHub checks <= ' + opts.verifyLimit + ' repositories\n\n');
     return opts;
   } finally {
     rl.close();
