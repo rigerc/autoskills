@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Discover skill candidates for rigerc/autoskills from Skills Directory and SkillsMD.
+ * Discover skill candidates from Skills Directory, SkillsMD, and Skills.sh.
  *
  * Requirements: Node >=22.6 (no npm dependencies); run with:
  *   node --experimental-strip-types scripts/discover-autoskills.mjs --repo-root .
@@ -16,9 +16,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { norm, phrase, unique, basename, signals, domain,
   bestMatches, createQueryPlanner, parseSkillMarkdown } from './discovery-matcher.mjs';
 import { createDiscoveryCache, defaultCacheDir } from './discovery-cache.mjs';
+import { findSkillsSh } from './discovery-skillssh.mjs';
 
 const DEFAULT_DIRECTORY_API = 'https://www.skillsdirectory.com/api/registry';
 const DEFAULT_SKILLSMD_API = 'https://skillsmd.dev/api';
+const DEFAULT_SKILLSSH_API = 'https://skills.sh/api/v1';
 const DEFAULT_GITHUB_API = 'https://api.github.com';
 
 const REPO_RE = /^[a-z\d_.-]+\/[a-z\d_.-]+$/i;
@@ -33,7 +35,9 @@ function options(argv) {
     selectionMarkdown: 'skills-discovery.selected.md', interactive: 'auto',
     apiBase: process.env.SKILLS_DIRECTORY_API || DEFAULT_DIRECTORY_API,
     skillsmdApi: process.env.SKILLSMD_API || DEFAULT_SKILLSMD_API,
+    skillsshApi: process.env.SKILLS_SH_API || DEFAULT_SKILLSSH_API,
     source: 'both', skillsmdPages: 3, skillsmdSearches: 25, skillsmdFilter: 'all',
+    skillsshPages: 1, skillsshSearches: 25, skillsshView: 'trending', skillsshCurated: true,
     githubApi: process.env.GITHUB_API_URL || DEFAULT_GITHUB_API,
     cache: true, cacheDir: defaultCacheDir(), cacheTtlMinutes: 360, clearCache: false,
     verbose: false,
@@ -48,8 +52,9 @@ function options(argv) {
     '--output':'output','--markdown':'markdown',
     '--selection-output':'selectionOutput','--selection-markdown':'selectionMarkdown',
     '--api-base':'apiBase','--github-api':'githubApi',
-    '--skillsmd-api':'skillsmdApi', '--source':'source',
+    '--skillsmd-api':'skillsmdApi', '--skillssh-api':'skillsshApi', '--source':'source',
     '--skillsmd-pages':'skillsmdPages', '--skillsmd-searches':'skillsmdSearches', '--skillsmd-filter':'skillsmdFilter',
+    '--skillssh-pages':'skillsshPages', '--skillssh-searches':'skillsshSearches', '--skillssh-view':'skillsshView',
     '--cache-dir':'cacheDir', '--cache-ttl-minutes':'cacheTtlMinutes',
   };
   for (let i=0; i<argv.length; i++) {
@@ -57,12 +62,12 @@ function options(argv) {
     if (flag === '-h' || flag === '--help') {
       console.log(`Usage: node --experimental-strip-types discover-autoskills.mjs [options]
 
-Find Skills Directory and SkillsMD entries related to autoskills' skills-map.ts.
+Find Skills Directory, SkillsMD and Skills.sh entries related to autoskills' skills-map.ts.
 Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
 
   --repo-root DIR       Repository checkout (auto-detected if omitted)
   --tech IDS            Comma-separated technology ids; default: all
-  --source NAME         both | skillsdirectory | skillsmd (default: both)
+  --source NAME         both | all | skillsdirectory | skillsmd | skillssh (default: both)
   --category SLUG       Optional Skills Directory category filter
   --sort MODE           recent | stars | votes (default: recent)
   --limit N             API records per page, 1..100 (default: 50)
@@ -83,6 +88,11 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --selection-markdown F Shortlisted candidates Markdown (default: skills-discovery.selected.md)
   --api-base URL        Skills Directory endpoint (for tests)
   --skillsmd-api URL    SkillsMD API base (for tests)
+  --skillssh-api URL    Skills.sh API v1 base (for tests)
+  --skillssh-pages N    Skills.sh leaderboard pages (default: 1)
+  --skillssh-searches N Maximum Skills.sh searches (default: 25)
+  --skillssh-view MODE  all-time | trending | hot (default: trending)
+  --no-skillssh-curated Skip Skills.sh first-party curated skills
   --github-api URL      GitHub API base (for tests)
   --cache               Enable persistent JSON response cache (default)
   --no-cache            Disable cache reads and writes
@@ -92,9 +102,11 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --verbose             Log API fetches to stderr
   --help                Show help
 
-Environment: GITHUB_TOKEN or GH_TOKEN (recommended for GitHub rate limits).
-The older documented /api/registry route is used; no API key is required
-by that documentation. --api-base/--github-api support local integration tests.
+Environment: GITHUB_TOKEN or GH_TOKEN (GitHub rate limits); VERCEL_OIDC_TOKEN
+(required for --source skillssh or all). Obtain via Vercel OIDC Federation and
+'vercel env pull'. See scripts/README-discover-autoskills.md for instructions.
+--source both keeps the original unauthenticated providers.
+--api-base/--github-api support local integration tests.
 `);
       process.exit(0);
     }
@@ -102,6 +114,7 @@ by that documentation. --api-base/--github-api support local integration tests.
     if (flag === '--cache') { out.cache = true; continue; }
     if (flag === '--no-cache') { out.cache = false; continue; }
     if (flag === '--clear-cache') { out.clearCache = true; continue; }
+    if (flag === '--no-skillssh-curated') { out.skillsshCurated = false; continue; }
     if (flag === '--interactive') { out.interactive = 'on'; continue; }
     if (flag === '--no-interactive') { out.interactive = 'off'; continue; }
     const prop = names[flag];
@@ -109,18 +122,19 @@ by that documentation. --api-base/--github-api support local integration tests.
     if (argv[i+1] === undefined || argv[i+1].startsWith('--')) throw new Error(`Missing value for ${flag}`);
     const raw = argv[++i];
     if (prop === 'tech') out.tech = raw.split(',').map(x=>x.trim()).filter(Boolean);
-    else if (['limit','pages','recentPages','categoryPages','queriesPerTech','minScore','detailsLimit','verifyLimit','maxPerTech','skillsmdPages','skillsmdSearches','directorySearches','cacheTtlMinutes'].includes(prop)) {
+    else if (['limit','pages','recentPages','categoryPages','queriesPerTech','minScore','detailsLimit','verifyLimit','maxPerTech','skillsmdPages','skillsmdSearches','skillsshPages','skillsshSearches','directorySearches','cacheTtlMinutes'].includes(prop)) {
       const n = Number(raw);
       if (!Number.isSafeInteger(n) || n < 0) throw new Error(`${flag} must be a nonnegative integer`);
       out[prop] = n;
     } else out[prop] = raw;
   }
-  if (!['both','skillsdirectory','skillsmd'].includes(out.source)) throw new Error('--source must be both, skillsdirectory, or skillsmd');
+  if (!['both','all','skillsdirectory','skillsmd','skillssh'].includes(out.source)) throw new Error('--source must be both, all, skillsdirectory, skillsmd, or skillssh');
   if (!['all','hot','trending'].includes(out.skillsmdFilter)) throw new Error('--skillsmd-filter must be all, hot, or trending');
+  if (!['all-time','hot','trending'].includes(out.skillsshView)) throw new Error('--skillssh-view must be all-time, hot, or trending');
   if (!['recent','stars','votes'].includes(out.sort)) throw new Error('--sort must be recent, stars, or votes');
   if (out.limit < 1 || out.limit > 100) throw new Error('--limit must be 1..100');
   if (out.cacheTtlMinutes > 43200) throw new Error('--cache-ttl-minutes must be 0..43200');
-  if (out.pages > 20 || out.recentPages > 20 || out.categoryPages > 20 || out.queriesPerTech > 6 || out.skillsmdPages > 30 || out.skillsmdSearches > 100 || out.directorySearches > 300) throw new Error('Page/query limits too high');
+  if (out.pages > 20 || out.recentPages > 20 || out.categoryPages > 20 || out.queriesPerTech > 6 || out.skillsmdPages > 30 || out.skillsmdSearches > 100 || out.skillsshPages > 30 || out.skillsshSearches > 100 || out.directorySearches > 300) throw new Error('Page/query limits too high');
   return out;
 }
 
