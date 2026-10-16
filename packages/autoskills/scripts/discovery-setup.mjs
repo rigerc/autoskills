@@ -43,7 +43,7 @@ export function applyDiscoveryIntensity(opts, intensity, argv = []) {
 
 /** Parse interactive numeric settings using the same bounds as the CLI. */
 export function parseDiscoveryNumber(value, name, min, max) {
-  if (!/^\\d+$/.test(value) || !Number.isSafeInteger(Number(value)) ||
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) ||
       Number(value) < min || Number(value) > max) {
     throw new Error(`${name} must be an integer from ${min} to ${max}`);
   }
@@ -75,14 +75,14 @@ async function configureAdvanced(opts, ask, output) {
   };
   const file = async (label, key) => {
     opts[key] = await ask(label, opts[key], value => {
-      if (!value || /[\\r\\n\\0]/.test(value)) throw new Error('Enter a valid file path');
+      if (!value || /[\r\n\0]/.test(value)) throw new Error('Enter a valid file path');
       if (key.startsWith('selection') && value === '-')
         throw new Error('Selection exports must be files, not stdout');
       return value;
     });
   };
   for (;;) {
-    output.write('Advanced settings: quality | providers | cache | files | done\\n');
+    output.write('Advanced settings: quality | providers | cache | files | done\n');
     const group = await ask('Configure group', 'done',
       value => parseDiscoveryChoice(value, ['quality','providers','cache','files','done']));
     if (group === 'done') break;
@@ -95,7 +95,7 @@ async function configureAdvanced(opts, ask, output) {
     } else if (group === 'providers') {
       await num('Queries per technology', 'queriesPerTech', 0, 6);
       if (['both','all','skillsdirectory'].includes(opts.source)) {
-        output.write('Skills Directory settings\\n');
+        output.write('Skills Directory settings\n');
         await choice('Sort order', 'sort', ['recent','stars','votes']);
         await num('Directory text search budget', 'directorySearches', 0, 300);
         await num('Pages per directory query', 'pages', 0, 20);
@@ -105,13 +105,13 @@ async function configureAdvanced(opts, ask, output) {
           value => value.toLowerCase() === 'all' ? '' : value);
       }
       if (['both','all','skillsmd'].includes(opts.source)) {
-        output.write('SkillsMD settings\\n');
+        output.write('SkillsMD settings\n');
         await choice('SkillsMD filter', 'skillsmdFilter', ['all','hot','trending']);
         await num('SkillsMD listing pages', 'skillsmdPages', 0, 30);
         await num('SkillsMD search budget', 'skillsmdSearches', 0, 100);
       }
       if (['all','skillssh'].includes(opts.source)) {
-        output.write('Skills.sh settings\\n');
+        output.write('Skills.sh settings\n');
         await choice('Skills.sh leaderboard', 'skillsshView', ['trending','hot','all-time']);
         await num('Skills.sh leaderboard pages', 'skillsshPages', 0, 30);
         await num('Skills.sh search budget', 'skillsshSearches', 0, 100);
@@ -187,7 +187,7 @@ export async function configureDiscovery(opts, technologies, argv, input = proce
       value => parseDiscoveryYesNo(value) ? 'on' : 'off');
     output.write('Selected ' + opts.source + ' | ' +
       (opts.tech.length ? opts.tech.join(', ') : 'all technologies') +
-      ' | ' + intensity + ' | GitHub checks <= ' + opts.verifyLimit + ' repositories\n\n');
+      ' | ' + intensity + ' | score >= ' + opts.minScore +\n      ' | GitHub checks <= ' + opts.verifyLimit + ' repositories\n\n');
     return opts;
   } finally {
     rl.close();
