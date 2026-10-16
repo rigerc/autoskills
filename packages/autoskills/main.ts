@@ -2,7 +2,7 @@ import { resolve, dirname, join, basename } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { detectTechnologies, collectSkills, detectAgents, getInstalledSkillNames } from "./lib.ts";
+import { detectTechnologies, detectAgents, getInstalledSkillNames } from "./lib.ts";
 import type { SkillEntry, Technology, ComboSkill } from "./lib.ts";
 import {
   log,
@@ -25,6 +25,7 @@ import type { InstallSecurityCheck } from "./installer.ts";
 import { checkSkillUpdates, updateSkill } from "./updater.ts";
 import { findGitRepos } from "./repos.ts";
 import { resolveRegistryConfig } from "./config.ts";
+import { collectProjectRecommendations, validateSkillSelection } from "./recommendations.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VERSION: string = (() => {
@@ -171,6 +172,10 @@ function printDetected(detected: Technology[], combos: ComboSkill[], isFrontend:
 }
 
 function formatSkillLabel(skill: string, { styled = false }: { styled?: boolean } = {}): string {
+  if (skill.startsWith("registry:")) {
+    const label = skill.slice("registry:".length).replace("/", " › ");
+    return styled ? cyan(label) : label;
+  }
   if (/^https?:\/\//i.test(skill)) {
     return styled ? cyan(skill) : skill;
   }
@@ -446,10 +451,17 @@ async function selectSkills(
   skills: SkillEntry[],
   autoYes: boolean,
   action: "install" | "update" = "install",
+  recommendedCount = skills.length,
 ): Promise<SkillEntry[]> {
   if (autoYes) {
-    printSkillsList(skills, action);
-    return skills;
+    const selected = skills.slice(0, recommendedCount);
+    if (selected.length) printSkillsList(selected, action);
+    return selected;
+  }
+  if (!process.stdin.isTTY && recommendedCount < skills.length) {
+    const selected = skills.slice(0, recommendedCount);
+    if (selected.length) printSkillsList(selected, action);
+    return selected;
   }
 
   const INSTALLED_TAG = " (installed)";
@@ -501,7 +513,7 @@ async function selectSkills(
       return techSources.length > 1 ? `← ${techSources.join(", ")}` : "";
     },
     groupFn: (s) => s.sources[0],
-    initialSelected: skills.map((s) => !s.installed),
+    initialSelected: skills.map((s, index) => index < recommendedCount && !s.installed),
     shortcuts:
       installedCount > 0
         ? [
@@ -664,20 +676,23 @@ async function runProject(
   const { detected, isFrontend, combos } = detectTechnologies(projectDir);
   write("\x1b[K");
 
-  if (detected.length === 0 && !isFrontend) {
+  printDetected(detected, combos, isFrontend);
+
+  const installedNames = getInstalledSkillNames(projectDir);
+  const { recommended: skills, selectable, warnings } = await collectProjectRecommendations(projectDir, {
+    detected, isFrontend, combos, installedNames,
+  });
+  for (const warning of warnings) log(yellow(`   ⚠ ${warning}`));
+  const resolvedAgents = agents.length > 0 ? agents : detectAgents(undefined, projectDir);
+
+  if (detected.length === 0 && !isFrontend && skills.length === 0 && selectable.length === 0) {
     log(yellow("   ⚠ No supported technologies detected."));
     log(dim("   Make sure you run this in a project directory."));
     log();
     return;
   }
 
-  printDetected(detected, combos, isFrontend);
-
-  const installedNames = getInstalledSkillNames(projectDir);
-  const skills = collectSkills({ detected, isFrontend, combos, installedNames });
-  const resolvedAgents = agents.length > 0 ? agents : detectAgents(undefined, projectDir);
-
-  if (skills.length === 0) {
+  if (skills.length === 0 && selectable.length === 0) {
     log(yellow("   No skills available for your stack yet."));
     log(dim("   Check https://autoskills.sh for the latest."));
     log();
@@ -685,14 +700,24 @@ async function runProject(
   }
 
   if (dryRun) {
-    printSkillsList(skills);
+    if (skills.length) printSkillsList(skills);
+    if (selectable.length) {
+      log(cyan("   ◆ ") + bold(`Additional registry skills for explicit selection (${selectable.length})`));
+      for (const item of selectable) log(`     ${formatSkillLabel(item.skill)}  ${dim(item.sources.join(", "))}`);
+      log();
+    }
     log(dim(`   Agents: ${resolvedAgents.join(", ")}`));
     log(dim("   --dry-run: nothing was installed."));
     log();
     return;
   }
 
-  const selectedSkills = await selectSkills(skills, autoYes);
+  const selectedSkills = await selectSkills([...skills, ...selectable], autoYes, "install", skills.length);
+  if (selectedSkills.length === 0) {
+    log(dim("   No automatic recommendations. Select an additional registry skill interactively."));
+    return;
+  }
+  validateSkillSelection(selectedSkills, projectDir);
 
   log();
 

@@ -71,7 +71,7 @@ function visibleItems() {
   if (!state.snapshot) return [];
   if (state.view === "suggested") {
     const q = state.query.trim().toLowerCase();
-    return state.snapshot.recommended.filter((item) => {
+    return [...state.snapshot.recommended, ...(state.snapshot.selectable || [])].filter((item) => {
       if (!q) return true;
       return [item.name, item.skill, item.sources.join(" ")].join(" ").toLowerCase().includes(q);
     });
@@ -116,7 +116,7 @@ function cardHtml(item, index) {
         <h3>${escapeHtml(item.name)}</h3>
         <p class="desc">${escapeHtml(item.skill)}</p>
         <div class="stamps">
-          ${item.installed ? `<span class="stamp">installed</span>` : `<span class="stamp project">suggested</span>`}
+          ${item.installed ? `<span class="stamp">installed</span>` : `<span class="stamp project">${item.manual ? "available" : "suggested"}</span>`}
           ${item.security?.status === "warning" ? `<span class="stamp warn">security</span>` : ""}
         </div>
         ${item.installed ? "" : `<button type="button" class="btn primary" data-install="${escapeHtml(item.skill)}">Install</button>`}
@@ -151,7 +151,7 @@ function renderGrid() {
   cards.forEach((card, index) => card.classList.toggle("is-active", index === state.cursor));
   els.installedCount.textContent = String(state.snapshot?.installed.length || 0);
   const newCount = (state.snapshot?.recommended || []).filter((item) => !item.installed).length;
-  els.suggestedCount.textContent = String(state.snapshot?.recommended.length || 0);
+  els.suggestedCount.textContent = String((state.snapshot?.recommended.length || 0) + (state.snapshot?.selectable?.length || 0));
   els.installNew.disabled = newCount === 0;
   els.installNew.textContent = newCount > 0 ? `Install ${newCount} new` : "Install new suggestions";
 }
@@ -179,7 +179,7 @@ async function loadSnapshot() {
   renderDrawerOptions();
   renderGrid();
   setStatus(
-    `${state.snapshot.installed.length} installed · ${state.snapshot.recommended.length} suggested for this stack`,
+    `${state.snapshot.installed.length} installed · ${state.snapshot.recommended.length} suggested · ${(state.snapshot.selectable || []).length} available to choose`,
   );
 }
 

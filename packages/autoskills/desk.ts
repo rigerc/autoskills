@@ -8,10 +8,10 @@ import type { AddressInfo } from "node:net";
 import {
   detectAgents,
   detectTechnologies,
-  collectSkills,
   getInstalledSkillNames,
   parseSkillPath,
 } from "./lib.ts";
+import type { SkillEntry } from "./lib.ts";
 import {
   readSkillDetail,
   readSkillFile,
@@ -19,8 +19,9 @@ import {
   scanInstalledSkills,
 } from "./inventory.ts";
 import type { InventoryOptions } from "./inventory.ts";
-import { installSkill, securityCheckForSkillPath } from "./installer.ts";
+import { installSkill, installRegistrySkill, securityCheckForSkillPath } from "./installer.ts";
 import type { InstallSecurityCheck } from "./installer.ts";
+import { collectProjectRecommendations, validateSkillSelection } from "./recommendations.ts";
 import { dim, green, log, yellow } from "./colors.ts";
 
 const DEFAULT_PORT = 4317;
@@ -116,26 +117,30 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(raw);
 }
 
-function snapshot(opts: DeskOptions) {
+async function snapshot(opts: DeskOptions) {
   const projectDir = resolve(opts.projectDir);
   const inventory = scanInstalledSkills(inventoryOpts(opts));
   const { detected, isFrontend, combos } = detectTechnologies(projectDir);
   const installedNames = getInstalledSkillNames(projectDir);
-  const recommended = collectSkills({ detected, isFrontend, combos, installedNames }).map(
-    (entry) => {
-      const { skillName } = parseSkillPath(entry.skill);
+  const suggestions = await collectProjectRecommendations(projectDir, {
+    detected, isFrontend, combos, installedNames, homeDir: opts.homeDir, fetchImpl: opts.fetchImpl,
+  });
+  const present = (entry: SkillEntry) => {
+      const { skillName } = entry.registrySkill ? { skillName: entry.registrySkill.entry.id } : parseSkillPath(entry.skill);
       const security = securityCheckForSkillPath(entry.skill);
       return {
         skill: entry.skill,
         name: skillName || entry.skill,
+        description: entry.registrySkill?.entry.description ?? "",
         sources: entry.sources,
         installed: entry.installed,
         security: security
           ? { status: security.status, summary: security.summary, findings: security.findings }
           : null,
       };
-    },
-  );
+    };
+  const recommended = suggestions.recommended.map(present);
+  const selectable = suggestions.selectable.map((entry) => ({ ...present(entry), manual: true }));
 
   return {
     projectDir: inventory.projectDir,
@@ -144,6 +149,8 @@ function snapshot(opts: DeskOptions) {
     drawers: inventory.drawers,
     installed: inventory.skills,
     recommended,
+    selectable,
+    registryWarnings: suggestions.warnings,
     detected: detected.map((tech) => tech.name),
     combos: combos.map((combo) => combo.name),
     isFrontend,
@@ -191,7 +198,7 @@ export function createDeskRequestListener(opts: DeskOptions) {
 
     try {
       if (method === "GET" && path === "/api/snapshot") {
-        json(res, 200, snapshot(opts));
+        json(res, 200, await snapshot(opts));
         return;
       }
 
@@ -246,6 +253,18 @@ export function createDeskRequestListener(opts: DeskOptions) {
         const agents = Array.isArray(body.agents)
           ? body.agents.filter((agent): agent is string => typeof agent === "string")
           : detectAgents(opts.homeDir, projectDir);
+        const { detected, isFrontend, combos } = detectTechnologies(projectDir);
+        const suggestions = await collectProjectRecommendations(projectDir, {
+          detected, isFrontend, combos, installedNames: getInstalledSkillNames(projectDir),
+          homeDir: opts.homeDir, fetchImpl: opts.fetchImpl,
+        });
+        const available = new Map([...suggestions.recommended, ...suggestions.selectable].map((entry) => [entry.skill, entry]));
+        const selected = skills.map((skill): SkillEntry => {
+          const known = available.get(skill);
+          if (skill.startsWith("registry:") && !known) throw new Error(`registry skill ${skill} is not available`);
+          return known ?? { skill, sources: [], installed: false };
+        });
+        validateSkillSelection(selected, projectDir);
         let installed = 0;
         let failed = 0;
         const errors: {
@@ -256,11 +275,15 @@ export function createDeskRequestListener(opts: DeskOptions) {
           command: string;
         }[] = [];
         const securityChecks: InstallSecurityCheck[] = [];
-        for (const skill of skills) {
-          const result = await installSkill(skill, agents, {
+        for (const entry of selected) {
+          const skill = entry.skill;
+          const result = await (entry.registrySkill ? installRegistrySkill(entry.registrySkill, agents, {
             projectDir,
             fetchImpl: opts.fetchImpl,
-          });
+          }) : installSkill(skill, agents, {
+            projectDir,
+            fetchImpl: opts.fetchImpl,
+          }));
           if (result.success) {
             installed += 1;
             if (result.securityCheck) securityChecks.push(result.securityCheck);
