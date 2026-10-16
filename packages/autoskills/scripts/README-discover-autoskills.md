@@ -1,6 +1,6 @@
 # Discover skills from external registries
 
-This is a **maintainer-only, read-only discovery tool**. It searches [Skills Directory](https://www.skillsdirectory.com/docs/registry-api) and [SkillsMD](https://skillsmd.dev/api.html) for new skills that match AutoSkills' existing technology detection map.
+This is a **maintainer-only, read-only discovery tool**. It searches [Skills Directory](https://www.skillsdirectory.com/docs/registry-api), [SkillsMD](https://skillsmd.dev/api.html), and authenticated [Skills.sh](https://www.skills.sh/docs/api) for new skills that match AutoSkills' existing technology detection map.
 
 ## Usage
 
@@ -137,7 +137,7 @@ The provider reads the documented `/skills`, `/skills/search`, and `/skills/cura
 
 ## Matching
 
-The script reads `packages/autoskills/skills-map.ts`, combines skill names, descriptions, tags, categories, package/config-file detection signals, repository metadata, and verification/popularity metadata, then assigns a score and explains the evidence. It merges duplicate candidates from both APIs, excludes already-listed skills and basename conflicts, and checks upstream GitHub trees for an actual `SKILL.md` before suggesting a full `owner/repository/skill` reference.
+The script reads `packages/autoskills/skills-map.ts`, combines skill names, descriptions, tags, categories, package/config-file detection signals, repository metadata, and verification/popularity metadata, then assigns a score and explains the evidence. It merges duplicate candidates across the selected providers, excludes already-listed skills and basename conflicts, and checks upstream GitHub trees for an actual `SKILL.md` before suggesting a full `owner/repository/skill` reference.
 
 API popularity or a matching tag **does not guarantee** that a skill is safe, high-quality, or applicable. Review results manually. Do not auto-add candidates to `skills-map.ts` or the curated registry. After approving a candidate, use the repository's existing `sync:skills` safety review and `validate:registry` workflow.
 
