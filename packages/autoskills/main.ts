@@ -107,6 +107,8 @@ function showHelp(): void {
     npx autoskills ${dim("registry add personal ~/my-skills")} Add a local registry
     npx autoskills ${dim("registry add team owner/repo")} Add a GitHub registry
     npx autoskills ${dim("registry list")}          List configured registries
+    npx autoskills ${dim("registry refresh [name]")}  Revalidate a registry source
+    npx autoskills ${dim("registry remove <name>")}   Remove a configured registry
     npx autoskills ${dim("-a cursor claude-code")} Install for specific IDEs only
 
   ${bold("Options:")}
