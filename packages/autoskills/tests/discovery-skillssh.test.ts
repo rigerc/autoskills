@@ -52,7 +52,7 @@ test('Skills.sh accepts only matching GitHub skill IDs and rejects duplicates', 
 test('Skills.sh authenticated discovery verifies GitHub blob and preserves provenance', async t => {
   const root = fixture(t), token = 'mock-vercel-oidc-token';
   const skillMd = '---\nname: React Hooks\ndescription: React hooks and components\n---\n# React Hooks\nDevelop React hooks and React components.';
-  const sha = createHash('sha1').update('blob ' + Buffer.byteLength(skillMd) + '\\0').update(skillMd).digest('hex');
+  const sha = createHash('sha1').update('blob ' + Buffer.byteLength(skillMd) + '\0').update(skillMd).digest('hex');
   let authorized = 0, searched = 0;
   const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
