@@ -426,17 +426,14 @@ function resolveInTree(skill, tree) {
   return {error:`ambiguous: ${tree.dirs.length} SKILL.md paths; cannot identify directory for ${skill.slug}`};
 }
 function balanceSources(entries) {
-  const dir=entries.filter(e=>e.source==='skillsdirectory');
-  const md=entries.filter(e=>e.source==='skillsmd');
-  if(!dir.length || !md.length) return entries;
+  const queues=['skillsdirectory','skillsmd','skillssh']
+    .map(source=>entries.filter(e=>e.source===source))
+    .filter(queue=>queue.length);
+  if(queues.length<2) return entries;
   const out=[];
-  while(dir.length || md.length) {
-    // Keep a minimum discovery allocation for both APIs when candidates abound.
-    for(let n=0;n<2&&dir.length;n++) out.push(dir.shift());
-    if(md.length) out.push(md.shift());
-    if(!dir.length) out.push(...md.splice(0));
-    if(!md.length) out.push(...dir.splice(0));
-  }
+  // Round robin prevents one provider from consuming the verification budget.
+  while(queues.some(queue=>queue.length))
+    for(const queue of queues) if(queue.length) out.push(queue.shift());
   return out;
 }
 function relatedSkillName(base,profiles) {
@@ -472,7 +469,7 @@ async function verify(entries,opts,existing) {
       const candidates=new Map();
       for(const item of group) {
         let paths=[];
-        if(item.source==='skillsdirectory') {
+        if(item.source==='skillsdirectory' || item.source==='skillssh') {
           const resolved=resolveInTree(item.skill,tree);
           if(resolved.error){item.notes.push(resolved.error);continue;}
           paths=[resolved.dir];
@@ -544,7 +541,7 @@ function markdownReport(report,opts) {
   const lines=[
     '# AutoSkills — registry skill discoveries','',
     `Generated: ${report.generatedAt}`,'',
-    `Mapped **${report.stats.technologies}** technologies. Skills Directory: **${report.stats.directoryRequests}** requests / **${report.stats.uniqueDirectorySkills}** entries. SkillsMD: **${report.stats.skillsmdRequests}** requests / **${report.stats.uniqueSkillsMdRepos}** repository entries.`,
+    `Mapped **${report.stats.technologies}** technologies. Skills Directory: **${report.stats.directoryRequests}** requests / **${report.stats.uniqueDirectorySkills}** entries. SkillsMD: **${report.stats.skillsmdRequests}** requests / **${report.stats.uniqueSkillsMdRepos}** repository entries. Skills.sh: **${report.stats.skillsshRequests}** requests / **${report.stats.uniqueSkillsShSkills}** entries.`,
     `Resolved **${report.matches.length}** new, non-colliding SKILL.md paths using GitHub (at most ${opts.verifyLimit} unique repository verification attempts).`,'',
     '**These are suggestions, not installed or security-approved skills.** Review every upstream file and license before editing `skills-map.ts`.','',
   ];
@@ -558,16 +555,18 @@ function markdownReport(report,opts) {
     if(!candidates.length) continue;
     lines.push(`## ${tech.name} (${tech.id})`,'');
     for(const {item,match} of candidates) {
-      const d=item.directory,sm=item.skillsmd;
+      const d=item.directory,sm=item.skillsmd,sh=item.skillssh;
       lines.push(`- **\`${item.skillPath}\`** — score **${match.score}**; sources: **${item.sources.join(', ')}**`);
       if(d?.description) lines.push(`  - Directory: ${safeText(d.name)} — ${safeText(d.description).slice(0,260)}`);
-      if(sm?.description) lines.push(`  - SkillsMD repository: ${safeText(sm.name)} — ${safeText(sm.description).slice(0,260)}`);
+      if(sh?.name) lines.push(`  - Skills.sh: ${safeText(sh.name)} (${sh.installs} installs)`);
+       if(sm?.description) lines.push(`  - SkillsMD repository: ${safeText(sm.name)} — ${safeText(sm.description).slice(0,260)}`);
       lines.push(`  - Relevance: **${match.relevanceScore}**; quality: **${match.qualityScore}** (tie-breaker)`);
       lines.push(`  - Evidence: ${safeText(match.reasons.join('; '))}`);
       if(item.skillBlobSha) lines.push(`  - Verified SKILL.md Git blob: \`${item.skillBlobSha}\``);
       const links=[`[SKILL.md directory](${item.githubUrl})`];
       if(d?.slug) links.push(`[Skills Directory](https://www.skillsdirectory.com/api/registry/${encodeURIComponent(d.slug)})`);
       if(sm?.repository) links.push(`[SkillsMD](https://skillsmd.dev/api/skill?repo=${encodeURIComponent(sm.repository)})`);
+       if(sh?.url) links.push(`[Skills.sh](${sh.url})`);
       lines.push(`  - ${links.join(' · ')}`);
       const tags=unique([...(d?.tags||[]),...(sm?.tags||[]),...(sm?.topics||[])]);
       if(tags.length) lines.push(`  - Tags/topics: ${tags.slice(0,15).map(safeText).join(', ')}`);
@@ -601,7 +600,7 @@ async function interactiveReview(report, opts) {
   }
   const selected = new Set();
   const techs = ['all', ...unique(report.matches.flatMap(x => x.matches.map(m => m.id)))];
-  const sources = ['all', 'skillsdirectory', 'skillsmd'];
+  const sources = ['all', 'skillsdirectory', 'skillsmd', 'skillssh'];
   let techIndex = 0, sourceIndex = 0, cursor = 0, top = 0, detailOffset = 0;
   let search = '', pendingSearch = '', searching = false, selectedOnly = false;
   let view = 'list', status = 'Space selects candidates; e exports a review shortlist. No skills are installed.';
@@ -617,7 +616,7 @@ async function interactiveReview(report, opts) {
     if (search) {
       const hay = norm([
         x.skillPath, x.skillName, x.directory?.name, x.directory?.description,
-        x.skillsmd?.name, x.skillsmd?.description, x.directory?.category,
+        x.skillsmd?.name, x.skillsmd?.description, x.skillssh?.name, x.directory?.category,
         ...(x.directory?.tags || []), ...(x.skillsmd?.tags || []),
         ...(x.skillsmd?.topics || []), ...x.matches.flatMap(m => [m.id, m.name, ...m.reasons])
       ].join(' '));
@@ -660,8 +659,8 @@ async function interactiveReview(report, opts) {
           `Sources: ${item.sources.join(', ')} | Confidence: ${item.confidence}`,
           `Category: ${item.directory?.category || 'not provided'}`,
           `License: ${item.directory?.github?.license || item.skillsmd?.license || 'unknown'}`,
-          `GitHub stars: ${item.directory?.stars ?? item.skillsmd?.stars ?? 'unknown'} | SkillsMD installs: ${item.skillsmd?.installs ?? 'unknown'}`,
-          `Description: ${item.directory?.description || item.skillsmd?.description || '(none)'}`,
+          `GitHub stars: ${item.directory?.stars ?? item.skillsmd?.stars ?? 'unknown'} | SkillsMD installs: ${item.skillsmd?.installs ?? 'unknown'} | Skills.sh installs: ${item.skillssh?.installs ?? 'unknown'}`,
+          `Description: ${item.directory?.description || item.skillsmd?.description || item.skillssh?.name || '(none)'}`,
           `Tags: ${unique([...(item.directory?.tags || []), ...(item.skillsmd?.tags || []), ...(item.skillsmd?.topics || [])]).join(', ') || '(none)'}`,
           ...item.matches.flatMap(m => [
             `${m.name} (${m.id}): ${m.score} points`,
@@ -681,7 +680,7 @@ async function interactiveReview(report, opts) {
         const item = items[i];
         const mark = selected.has(item.skillPath) ? 'x' : ' ';
         const tech = item.matches[0]?.id || '?';
-        const src = item.sources.map(s => s === 'skillsdirectory' ? 'D' : 'M').join('+');
+        const src = item.sources.map(s => s === 'skillsdirectory' ? 'D' : s === 'skillsmd' ? 'M' : 'S').join('+');
         lines.push(fit(`${cursor === i ? '>' : ' '} [${mark}] ${String(item.score).padStart(3)} ${tech.padEnd(16).slice(0, 16)} ${item.skillPath} [${src}]`));
       }
       lines.push(fit(`Showing ${items.length ? top + 1 : 0}-${Math.min(items.length, top + limit)} of ${items.length}`));
