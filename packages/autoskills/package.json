@@ -27,6 +27,7 @@
     "index.mjs",
     "dist/",
     "studio/",
+    "docs/catalog.md",
     "skills-registry/index.json"
   ],
   "type": "module",

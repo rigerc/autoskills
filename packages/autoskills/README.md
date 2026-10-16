@@ -278,6 +278,8 @@ When multiple technologies are found together, the following **33 combinations**
 
 ## How It Works
 
+The [user skill catalog format](docs/catalog.md) defines versioned manifests for local and GitHub skill registries. It is separate from the bundled review index.
+
 Skills are markdown files that teach AI assistants how to work with specific technologies. `autoskills` uses its curated technology map to select skills, then downloads them and their supporting files directly from their upstream GitHub repositories. Each installation resolves the latest default-branch commit, verifies downloaded bytes against the commit's Git blob hashes, and records upstream provenance and content hashes in `skills-lock.json`.
 
 Installation does not use the locally synced registry or download from an autoskills mirror. The former registry's reviews do not apply to live upstream content. Set `GITHUB_TOKEN` or `GH_TOKEN` for private repositories or higher API limits.
