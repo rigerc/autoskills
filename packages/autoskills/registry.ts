@@ -10,6 +10,7 @@ export interface LoadedRegistrySkill {
   registry: string;
   entry: CatalogEntry;
   origin: { type: "local"; directory: string } | { type: "github"; repository: string; directory: string; revision?: string };
+  catalogRevision?: string;
 }
 
 export interface LoadedRegistry {
@@ -103,7 +104,7 @@ function fromGithub(name: string, source: Extract<RegistrySource, { type: "githu
     name, source, revision: cached.revision, stale, warning,
     skills: cached.catalog.skills.map((entry) => {
       const location = githubDirectory(source.manifest, entry, source.repository);
-      return { registry: name, entry, origin: { type: "github", ...location, ...(location.repository === source.repository ? { revision: cached.revision } : {}) } };
+      return { registry: name, entry, origin: { type: "github", ...location, ...(location.repository === source.repository ? { revision: cached.revision } : {}) }, catalogRevision: cached.revision };
     }),
   };
 }

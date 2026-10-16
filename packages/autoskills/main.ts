@@ -636,7 +636,7 @@ async function runProject(
       return;
     }
     if (dryRun) {
-      for (const { name, source } of outdated) log(`   ${name} → ${source.commitSha.slice(0, 7)}`);
+      for (const { name, source, kind } of outdated) log(`   ${name} → ${kind === "local" ? "local source" : source.commitSha.slice(0, 7)}`);
       log(dim("   --dry-run: nothing was updated."));
       return;
     }

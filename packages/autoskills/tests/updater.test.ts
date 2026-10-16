@@ -4,7 +4,8 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { checkSkillUpdates, updateSkill } from "../updater.ts";
-import { installSkill, readSkillsLock } from "../installer.ts";
+import { installRegistrySkill, installSkill, readSkillsLock } from "../installer.ts";
+import type { LoadedRegistrySkill } from "../registry.ts";
 import { useTmpDir, writeFile, writeJson } from "./helpers.ts";
 import { COMMIT, NEXT_COMMIT, sourceFixture } from "./source-helpers.ts";
 
@@ -98,10 +99,53 @@ describe("skill updates", () => {
     });
     writeJson(tmp.path, "skills-lock.json", {
       version: 1,
-      skills: { local: { source: "/local", sourceType: "local" } },
+      skills: { other: { source: "/local", sourceType: "unsupported" } },
     });
     const result = await checkSkillUpdates({ projectDir: tmp.path });
-    deepEqual(result.skipped, ["local"]);
+    deepEqual(result.skipped, ["other"]);
+  });
+
+  it("updates local bundles from their locked origin after registry removal", async () => {
+    const source = join(tmp.path, "origin/review");
+    writeFile(tmp.path, "origin/review/SKILL.md", "# Old");
+    writeFile(tmp.path, "origin/review/deleted.md", "obsolete");
+    const skill: LoadedRegistrySkill = { registry: "personal", entry: { id: "review", description: "Review", path: "review" }, origin: { type: "local", directory: source } };
+    ok((await installRegistrySkill(skill, ["pi"], { projectDir: tmp.path })).success);
+    writeJson(tmp.path, "autoskills.json", { version: 1, registries: { personal: { directory: "./different" } } });
+    writeFile(tmp.path, "origin/review/SKILL.md", "# New");
+    writeFile(tmp.path, "origin/review/added.md", "new");
+    rmSync(join(source, "deleted.md"));
+    const check = await checkSkillUpdates({ projectDir: tmp.path });
+    equal(check.skills[0].kind, "local");
+    equal(check.skills[0].outdated, true);
+    const updated = await updateSkill(check.skills[0], [], { projectDir: tmp.path });
+    ok(updated.success, updated.output);
+    equal(readFileSync(join(tmp.path, ".pi/skills/review/SKILL.md"), "utf8"), "# New");
+    ok(existsSync(join(tmp.path, ".agents/skills/review/added.md")));
+    ok(!existsSync(join(tmp.path, ".agents/skills/review/deleted.md")));
+    equal(readSkillsLock(tmp.path).skills.review.source, source);
+    equal((await checkSkillUpdates({ projectDir: tmp.path })).skills[0].outdated, false);
+    rmSync(source, { recursive: true });
+    const unavailable = await checkSkillUpdates({ projectDir: tmp.path });
+    equal(unavailable.errors[0].name, "review");
+    ok(unavailable.errors[0].error.includes("local source unavailable"));
+  });
+
+  it("updates a GitHub registry skill from its exact locked path", async () => {
+    const skill: LoadedRegistrySkill = {
+      registry: "team", catalogRevision: COMMIT,
+      entry: { id: "review", description: "Review", repository: "owner/repo", directory: "exact/review" },
+      origin: { type: "github", repository: "owner/repo", directory: "exact/review", revision: COMMIT },
+    };
+    ok((await installRegistrySkill(skill, [], { projectDir: tmp.path, ...sourceFixture({ "exact/review/SKILL.md": "old" }) })).success);
+    const fixture = sourceFixture({ "wrong/review/SKILL.md": "decoy", "exact/review/SKILL.md": "new" }, NEXT_COMMIT);
+    const check = await checkSkillUpdates({ projectDir: tmp.path, ...fixture });
+    equal(check.skills[0].source.skillPath, "exact/review");
+    const updated = await updateSkill(check.skills[0], [], { projectDir: tmp.path, ...fixture });
+    ok(updated.success, updated.output);
+    equal(readFileSync(join(tmp.path, ".agents/skills/review/SKILL.md"), "utf8"), "new");
+    equal(readSkillsLock(tmp.path).skills.review.catalogRevision, COMMIT);
+    equal(readSkillsLock(tmp.path).skills.review.commitSha, NEXT_COMMIT);
   });
 
   it("reports a failing source while checking other installed skills", async () => {

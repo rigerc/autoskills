@@ -30,7 +30,7 @@ describe("registry installation", () => {
     equal(locked.source, join(tmp.path, "origin/review"));
     equal(locked.registry, "personal");
     equal(locked.sourceHash?.length, 64);
-    equal(locked.computedHash, locked.sourceHash);
+    equal(locked.computedHash?.length, 64);
   });
 
   it("rejects symlinks and source collisions before replacing files", async () => {
@@ -58,7 +58,7 @@ describe("registry installation", () => {
     const missing = await installRegistrySkill(skill, [], { projectDir: tmp.path, ...fixture });
     match(missing.output, /exact skill path/);
     ok(!existsSync(join(tmp.path, ".agents/skills/review")));
-    const pinned = { ...skill, origin: { type: "github" as const, repository: "owner/repo", directory: "exact/review", revision: COMMIT } };
+    const pinned = { ...skill, catalogRevision: COMMIT, origin: { type: "github" as const, repository: "owner/repo", directory: "exact/review", revision: COMMIT } };
     const fixturePinned = sourceFixture({ "exact/review/SKILL.md": "# Exact", "other/review/SKILL.md": "# Other" });
     const valid = await installRegistrySkill(pinned, [], {
       projectDir: tmp.path,

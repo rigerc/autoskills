@@ -333,6 +333,31 @@ export async function installSkill(
   }
 }
 
+export function readLocalSkillBundle(root: string): { path: string; content: Buffer; executable: boolean }[] {
+  if (!lstatSync(root).isDirectory()) throw new Error(`local source is not a directory: ${root}`);
+  const files: { path: string; content: Buffer; executable: boolean }[] = [];
+  function walk(dir: string, prefix = ""): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) throw new Error(`symlinks are not allowed in local skills: ${path}`);
+      if (stat.isDirectory()) walk(path, rel);
+      else if (stat.isFile()) files.push({ path: rel, content: readFileSync(path), executable: Boolean(stat.mode & 0o111) });
+      else throw new Error(`unsupported file in local skill: ${path}`);
+    }
+  }
+  walk(root);
+  if (!files.some((file) => file.path === "SKILL.md")) throw new Error(`SKILL.md missing from local source ${root}`);
+  return files;
+}
+
+export function localBundleSourceHash(files: { path: string; content: Buffer; executable: boolean }[]): string {
+  return createHash("sha256").update(files.map((file) =>
+    `${file.path}:${createHash("sha256").update(file.content).digest("hex")}:${file.executable}`,
+  ).sort().join("\n")).digest("hex");
+}
+
 /** Copy a catalog skill from its recorded source, keeping its source identity. */
 export async function installRegistrySkill(
   skill: LoadedRegistrySkill,
@@ -349,34 +374,21 @@ export async function installRegistrySkill(
     let record: LockedSkill;
     if (origin.type === "local") {
       const root = origin.directory;
-      if (!lstatSync(root).isDirectory()) throw new Error(`local source is not a directory: ${root}`);
-      files = [];
-      function walk(dir: string, prefix = ""): void {
-        for (const entry of readdirSync(dir, { withFileTypes: true })) {
-          const path = join(dir, entry.name);
-          const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-          const stat = lstatSync(path);
-          if (stat.isSymbolicLink()) throw new Error(`symlinks are not allowed in local skills: ${path}`);
-          if (stat.isDirectory()) walk(path, rel);
-          else if (stat.isFile()) files.push({ path: rel, content: readFileSync(path), executable: Boolean(stat.mode & 0o111) });
-          else throw new Error(`unsupported file in local skill: ${path}`);
-        }
-      }
-      walk(root);
-      if (!files.some((file) => file.path === "SKILL.md")) throw new Error(`SKILL.md missing from local source ${root}`);
-      record = { source: root, sourceType: "local", sourceHash: bundleHash(files), registry: skill.registry };
+      files = readLocalSkillBundle(root);
+      record = { source: root, sourceType: "local", sourceHash: localBundleSourceHash(files), registry: skill.registry };
     } else {
       const source = await resolveSourceSkillExact(origin.repository, name, origin.directory, opts, origin.revision);
       files = await downloadSourceSkill(source, opts);
       record = {
         source: source.source, sourceType: "github", skillPath: source.skillPath,
         commitSha: source.commitSha, sourceHash: source.sourceHash,
-        registry: skill.registry, ...(origin.revision ? { catalogRevision: origin.revision } : {}),
+        registry: skill.registry, ...(skill.catalogRevision ? { catalogRevision: skill.catalogRevision } : {}),
       };
     }
     const skillsDir = join(projectDir, ".agents", "skills");
     const canonicalDir = join(skillsDir, name);
     const current = readSkillsLock(projectDir).skills[name];
+    if (!record.catalogRevision && current?.catalogRevision) record.catalogRevision = current.catalogRevision;
     if (current) {
       const sameSource = current.source === record.source &&
         (current.sourceType === record.sourceType || (current.sourceType === "autoskills-registry" && record.sourceType === "github")) &&
