@@ -818,8 +818,12 @@ async function main() {
   const existing=listSkillPaths(map,manifest);
   const profiles=filtered.map(signals);
   opts.profiles=profiles;
-  const useDirectory=opts.source==='both'||opts.source==='skillsdirectory';
-  const useMd=opts.source==='both'||opts.source==='skillsmd';
+  const useDirectory=['both','all','skillsdirectory'].includes(opts.source);
+  const useMd=['both','all','skillsmd'].includes(opts.source);
+  const useSh=['all','skillssh'].includes(opts.source);
+  if(useSh && !process.env.VERCEL_OIDC_TOKEN?.trim()) throw new Error(
+    'Skills.sh requires VERCEL_OIDC_TOKEN. Enable Vercel OIDC Federation, pull the token, and export it before running.'
+  );
   const found=useDirectory ? await findDirectory(opts,profiles).catch(e=>{
     console.error(`Skills Directory unavailable: ${e.message}`);
     return {items:[],stats:{requests:0,rows:0},errors:[e.message]};
@@ -828,8 +832,12 @@ async function main() {
     console.error(`SkillsMD unavailable: ${e.message}`);
     return {items:[],stats:{requests:0,rows:0},errors:[e.message]};
   }) : {items:[],stats:{requests:0,rows:0},errors:[]};
-  if(found.stats.requests===0 && md.stats.requests===0) {
-    throw new Error(`Neither requested discovery API returned results: ${[...found.errors,...md.errors].join('; ')}`);
+  const sh=useSh ? await findSkillsSh(opts,profiles,jsonFetch,urlFor).catch(e=>{
+    console.error(`Skills.sh unavailable: ${e.message}`);
+    return {items:[],stats:{requests:0,rows:0},errors:[e.message]};
+  }) : {items:[],stats:{requests:0,rows:0},errors:[]};
+  if(found.stats.requests===0 && md.stats.requests===0 && sh.stats.requests===0) {
+    throw new Error(`Neither requested discovery API returned results: ${[...found.errors,...md.errors,...sh.errors].join('; ')}`);
   }
   const directoryCandidates=[];
   for(const skill of found.items) {
@@ -848,7 +856,13 @@ async function main() {
   }
   mdCandidates.sort((a,b)=>b.score-a.score);
   await enrichSkillsMd(mdCandidates,opts);
-  const candidates=[...directoryCandidates,...mdCandidates]
+  const shCandidates=[];
+  for(const skill of sh.items) {
+    const matches=bestMatches(skill,profiles,opts.minScore);
+    shCandidates.push({source:'skillssh',skill,matches,score:matches[0]?.score??0,notes:[]});
+  }
+  shCandidates.sort((a,b)=>b.score-a.score);
+  const candidates=[...directoryCandidates,...mdCandidates,...shCandidates]
     // Provisional retrieval cutoff: final min-score and eligibility are applied
     // only after reading the immutable SKILL.md content.
     .filter(x=>x.score>=Math.min(15,opts.minScore))
@@ -857,6 +871,7 @@ async function main() {
   const final=verified.map(item=>{
     const directoryE=item.evidence.find(e=>e.source==='skillsdirectory');
     const mdE=item.evidence.find(e=>e.source==='skillsmd');
+    const shE=item.evidence.find(e=>e.source==='skillssh');
     const directory=directoryE && {
       name:directoryE.skill.name,slug:directoryE.skill.slug,repository:directoryE.skill.repository,
       description:directoryE.skill.description,category:directoryE.skill.category,
@@ -872,11 +887,15 @@ async function main() {
       license:mdE.skill.license,updated:mdE.skill.updated,
       hot:mdE.skill.hot,trending:mdE.skill.trending,
     };
+    const skillssh=shE && {
+      name:shE.skill.name,repository:shE.skill.repository,slug:shE.skill.slug,
+      installs:shE.skill.installs,url:shE.skill.skillsshUrl,
+    };
     return {
       skillPath:item.skillPath,skillName:item.skillName,directoryPath:item.directoryPath,
       githubUrl:item.githubUrl,skillBlobSha:item.skillBlobSha,
       confidence:item.confidence,sources:unique(item.sources),
-      score:item.score,matches:item.matches,directory,skillsmd,
+      score:item.score,matches:item.matches,directory,skillsmd,skillssh,
       notes:unique(item.evidence.flatMap(e=>e.notes)),
     };
   });
@@ -884,21 +903,23 @@ async function main() {
     generatedAt:new Date().toISOString(),
     directoryApi:useDirectory?opts.apiBase:null,
     skillsmdApi:useMd?opts.skillsmdApi:null,
+    skillsshApi:useSh?opts.skillsshApi:null,
     repository:'rigerc/autoskills',
     stats:{technologies:filtered.length,directoryRequests:found.stats.requests,
       directoryRows:found.stats.rows,uniqueDirectorySkills:found.items.length,
       skillsmdRequests:md.stats.requests,skillsmdRows:md.stats.rows,
       uniqueSkillsMdRepos:new Set(md.items.map(x=>x.repository.toLowerCase())).size,
+      skillsshRequests:sh.stats.requests,skillsshRows:sh.stats.rows,uniqueSkillsShSkills:sh.items.length,
       semanticCandidates:candidates.length,githubVerified:final.length,
       cache:{enabled:discoveryCache.enabled,directory:discoveryCache.dir,...discoveryCache.stats}},
     technologies:filtered.map(x=>({id:x.id,name:x.name})),
     matches:final,
-    errors:[...found.errors,...md.errors,...candidates.flatMap(x=>x.notes.map(n=>`${x.source} ${x.skill.repository}: ${n}`))],
+    errors:[...found.errors,...md.errors,...sh.errors,...candidates.flatMap(x=>x.notes.map(n=>`${x.source} ${x.skill.repository}: ${n}`))],
   };
   if(opts.output===opts.markdown) throw new Error('JSON and Markdown output paths must differ (including stdout)');
   outputFile(opts.output,JSON.stringify(report,null,2));
   outputFile(opts.markdown,markdownReport(report,opts));
-  console.error(`Done: ${report.stats.uniqueDirectorySkills} Skills Directory entries + ${report.stats.uniqueSkillsMdRepos} SkillsMD repos; ${candidates.length} matched entries; ${final.length} new GitHub-verified SKILL.md paths.`);
+  console.error(`Done: ${report.stats.uniqueDirectorySkills} Skills Directory entries + ${report.stats.uniqueSkillsMdRepos} SkillsMD repos + ${report.stats.uniqueSkillsShSkills} Skills.sh entries; ${candidates.length} matched entries; ${final.length} new GitHub-verified SKILL.md paths.`);
   console.error(`Cache: ${discoveryCache.stats.hits} hits, ${discoveryCache.stats.misses} misses, ${discoveryCache.stats.networkRequests} HTTP attempts, ${discoveryCache.stats.writes} writes (${discoveryCache.enabled ? discoveryCache.dir : 'disabled'}).`);
   if (opts.interactive==='on' || (opts.interactive==='auto' && process.stdin.isTTY && process.stdout.isTTY && opts.output!=='-' && opts.markdown!=='-')) {
     await interactiveReview(report,opts);
