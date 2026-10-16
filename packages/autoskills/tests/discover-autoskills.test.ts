@@ -3,6 +3,7 @@ import { mkdtempSync,mkdirSync,writeFileSync,readFileSync } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawn} from 'node:child_process';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { rmSync } from 'node:fs';
 
@@ -29,6 +30,16 @@ const md=[
  {id:'neworg/react-hooks/react-hooks',repo:'neworg/react-hooks',name:'React Hooks',desc:'React hooks for developers',tags:['react','frontend'],installs:888,stars:200},
  {id:'multi-tech/toolkit',repo:'multi-tech/toolkit',name:'React Toolkit',desc:'Skills for React projects',tags:['react'],installs:200,stars:55},
 ];
+const blobContent=new Map();
+function blob(path) {
+ const content=path.includes('marketing') ? '# Marketing\nCampaign writing and audience research.' :
+   path.includes('docker') ? '# Docker CI\nDocker containers and automation for builds.' :
+   path.includes('playwright') ? '# Playwright\nPlaywright end-to-end testing for web applications.' :
+   '# React Hooks\nReact hooks, components and frontend patterns.';
+ const sha=createHash('sha1').update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest('hex');
+ blobContent.set(sha,content);
+ return {path,type:'blob',mode:'100644',sha};
+}
 const server=createServer((req,res)=>{
  const u=new URL(req.url,'http://localhost');
  let ret;
@@ -50,10 +61,13 @@ const server=createServer((req,res)=>{
   if(repo==='neworg/react-hooks') path='skills/react-hooks/SKILL.md';
   else if(repo==='neworg/docker-ci') path='skills/docker-ci/SKILL.md';
   else if(repo==='neworg/playwright-skills') path='skills/playwright/SKILL.md';
-  else if(repo==='multi-tech/toolkit') {ret={truncated:false,tree:[{path:'skills/react-forms/SKILL.md',type:'blob',mode:'100644'},{path:'skills/marketing/SKILL.md',type:'blob',mode:'100644'}]};}
+  else if(repo==='multi-tech/toolkit') {ret={truncated:false,tree:[blob('skills/react-forms/SKILL.md'),blob('skills/marketing/SKILL.md')]};}
 
   else path='skills/react-best-practices/SKILL.md';
-  ret ??= {truncated:false,tree:[{path,type:'blob',mode:'100644'}]};
+  ret ??= {truncated:false,tree:[blob(path)]};
+ } else if(u.pathname.includes('/git/blobs/')) {
+  const sha=u.pathname.split('/').at(-1),content=blobContent.get(sha);
+  if(content) ret={encoding:'base64',content:Buffer.from(content).toString('base64'),size:Buffer.byteLength(content)};
  } else if(u.pathname.startsWith('/repos/')) ret={default_branch:'main'};
  else {res.writeHead(404);res.end('{}');return;}
  res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(ret));
@@ -65,11 +79,8 @@ const cmd=['--experimental-strip-types','--disable-warning=ExperimentalWarning',
 const child=spawn('node',cmd,{stdio:['ignore','pipe','pipe']});
 let out='',err='';child.stdout.on('data',x=>out+=x);child.stderr.on('data',x=>err+=x);
 const code=await new Promise(ok=>child.on('exit',ok));
-console.log('code:',code,'stderr:',err);
 if(code===0) {
  const r=JSON.parse(readFileSync(join(root,'out.json'),'utf8'));
- console.log(JSON.stringify({statistics:r.stats,matches:r.matches.map(x=>({path:x.skillPath,matches:x.matches.map(y=>[y.id,y.score])}))},null,2));
- console.log(readFileSync(join(root,'out.md'),'utf8').slice(0,4000));
  if(!r.matches.some(x=>x.skillPath==='neworg/playwright-skills/playwright')) throw new Error('Missing SkillsMD skill');
  if(r.matches.some(x=>x.skillPath==='multi-tech/toolkit/marketing')) throw new Error('Irrelevant multi-skill entry');
  if(r.matches.some(x=>x.skillPath==='vercel-labs/agent-skills/react-best-practices')) throw new Error('Already registered skill');

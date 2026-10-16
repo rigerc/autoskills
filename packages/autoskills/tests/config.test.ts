@@ -57,6 +57,10 @@ describe("registry configuration", () => {
     const repos = join(tmp.path, "repos");
     for (const name of ["first", "second"]) {
       writeFile(repos, `${name}/.git/HEAD`, "ref: refs/heads/main");
+      writeFile(repos, `${name}/skills/${name}-skill/SKILL.md`, `# ${name}`);
+      writeJson(repos, `${name}/skills/catalog.json`, { version: 1, skills: [
+        { id: `${name}-skill`, description: `${name} skill`, path: `${name}-skill`, always: true },
+      ] });
       writePackageJson(join(repos, name), { dependencies: { react: "19" } });
       writeJson(repos, `${name}/autoskills.json`, { version: 1, registries: { [name]: { directory: "./skills" } } });
     }
@@ -70,6 +74,10 @@ describe("registry configuration", () => {
     const second = output.slice(output.indexOf("Repository: second"));
     match(first, /Configured registries: first/);
     match(second, /Configured registries: second/);
+    match(first, /first › first-skill/);
+    match(second, /second › second-skill/);
+    ok(!first.includes("second › second-skill"));
+    ok(!second.includes("first › first-skill"));
     ok(!first.includes("Configured registries: second"));
     ok(!second.includes("Configured registries: first"));
     match(first, /React/);

@@ -43,4 +43,26 @@ Each entry needs exactly one source option: `path`, or both `repository` and `di
 
 Entries without `always: true` or a matching technology stay available for explicit selection. They do not enter the automatic recommendation set. `always: true` takes precedence when `technologies` is also present.
 
-The parser rejects unknown fields, duplicate IDs, unknown technology IDs, malformed sources, and unsupported versions with an error naming the offending field. This format has no custom detection rules or arbitrary HTTP sources. Registry configuration, loading, selection in the CLI and desk, and installation are covered by the follow-on registry tasks.
+The parser rejects unknown fields, duplicate IDs, unknown technology IDs, malformed sources, and unsupported versions with an error naming the offending field. This format has no custom detection rules or arbitrary HTTP sources.
+
+## Registry configuration
+
+`autoskills registry add` writes named sources to a project's `autoskills.json` by default. `--global` writes to `${XDG_CONFIG_HOME:-~/.config}/autoskills/config.json`. Both files use the same shape:
+
+```json
+{
+  "version": 1,
+  "registries": {
+    "personal": { "directory": "/home/me/my-skills" },
+    "team": { "repository": "acme/agent-skills", "manifest": "catalog.json" }
+  }
+}
+```
+
+Local `directory` paths in a hand-edited config resolve relative to that config file. GitHub sources use `owner/repository`; `manifest` is a safe repository-relative file path and defaults to `catalog.json`. The project entry replaces the whole user entry when both use the same name. The built-in skill recommendations stay active.
+
+A local registry does not need a catalog: each immediate child directory containing `SKILL.md` becomes a skill available for explicit selection. Add `catalog.json` to map skills to technologies or mark them `always`. Catalog entries can point to local paths inside that registry or to exact GitHub skill directories. Local paths must stay within the registry after symlinks resolve, and symlinks inside installed local bundles are rejected.
+
+For a GitHub registry, publish the catalog and skill directories in a repository, then run `autoskills registry add team owner/repository`. Use `--path path/to/catalog.json` for a nested manifest. The loader verifies the manifest against its Git revision, caches validated copies, and reports when it must use a stale cache. `autoskills registry refresh team` forces validation and reports failures. `GITHUB_TOKEN` or `GH_TOKEN` supports private repositories and higher API limits.
+
+The CLI and desk show mapped and `always` entries alongside built-in recommendations. Unmapped entries stay available for manual selection. `autoskills update` follows each installed skill's locked origin, even after registry removal or edits. Local lock origins are absolute and therefore machine-specific. Live symlink installs and registry editing in the desk are outside this version.

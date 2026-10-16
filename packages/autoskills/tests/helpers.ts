@@ -17,6 +17,7 @@ export function useTmpDir(prefix: string = "autoskills-"): { path: string } {
 }
 
 export function writePackageJson(dir: string, data: Record<string, unknown> = {}): void {
+  mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "package.json"), JSON.stringify(data));
 }
 
