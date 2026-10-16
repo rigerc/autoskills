@@ -41,6 +41,58 @@ When stdin and stdout are TTYs, `discover:skills` automatically presents an inte
 
 Selecting or exporting a skill is **not** approval, installation, or a change to `skills-map.ts`. Exports are intended solely for maintainer review. If terminal review is unavailable, run the batch command and inspect the generated Markdown report.
 
+## Skills.sh API (authenticated)
+
+[Skills.sh API documentation](https://www.skills.sh/docs/api) requires a **Vercel OIDC bearer token**, not a personal Skills.sh API key. Its base URL is `https://skills.sh/api/v1`. This provider is opt-in to preserve existing unauthenticated discovery runs.
+
+### Get a Vercel token locally
+
+1. Install the [Vercel CLI](https://vercel.com/docs/cli), then run `vercel login`. Create or select a Vercel project to associate with the token.
+2. In the Vercel dashboard for that project, enable **OIDC Federation** in the project's **Settings → Security / OIDC Federation** area (label may vary). Refer to [Vercel OIDC documentation](https://vercel.com/docs/oidc).
+3. From the AutoSkills checkout, link that directory to your Vercel project and pull its development environment:
+
+```bash
+vercel login
+vercel link
+vercel env pull .env.local
+```
+
+The pull command puts a short-lived `VERCEL_OIDC_TOKEN` in `.env.local`. A freshly pulled local token is normally valid for about **12 hours**. The discovery CLI does **not** load `.env.local` automatically, so export it in the shell before invoking the script:
+
+```bash
+# Bash / zsh. Node.js >=22.6 already required by AutoSkills.
+export VERCEL_OIDC_TOKEN="$(node -e "process.loadEnvFile('.env.local'); process.stdout.write(process.env.VERCEL_OIDC_TOKEN || '')")"
+
+# Search only Skills.sh for React, using authenticated requests.
+pnpm --dir packages/autoskills discover:skills --source skillssh --tech react --no-interactive
+
+# Search all three providers (Skills Directory + SkillsMD + Skills.sh).
+pnpm --dir packages/autoskills discover:skills --source all --tech react,playwright --no-interactive
+```
+
+On PowerShell, replace the `export` line with:
+
+```powershell
+$env:VERCEL_OIDC_TOKEN = node -e "process.loadEnvFile('.env.local'); process.stdout.write(process.env.VERCEL_OIDC_TOKEN || '')"
+```
+
+If Skills.sh responds with **401**, rerun `vercel env pull .env.local` and re-export the token. For Vercel-hosted workloads, the [`@vercel/oidc` helper](https://www.skills.sh/docs/api) can refresh tokens automatically; this dependency-free maintainer script instead reads the current environment variable at request time.
+
+**Credential hygiene:** Never commit `.env.local`, paste tokens into issues, or print them in logs. The root `.gitignore` excludes `.env.local`. Token values are not placed in reports and are only used as bearer authorization headers (the shared discovery cache keys authenticated responses by a one-way hash of the token).
+
+### Provider selection and controls
+
+- `--source skillssh`: Skills.sh only, requires `VERCEL_OIDC_TOKEN`.
+- `--source all`: all three sources, requires `VERCEL_OIDC_TOKEN`.
+- `--source both` (default): original Skills Directory and SkillsMD sources; no Vercel token necessary.
+- `--skillssh-view trending|hot|all-time`: leaderboard ordering; `trending` by default.
+- `--skillssh-pages N`: leaderboard pages (default 1, starting at page 0).
+- `--skillssh-searches N`: bounded technology searches (default 25).
+- `--no-skillssh-curated`: skip the first-party curated set.
+- `--skillssh-api URL`: override the Skills.sh API endpoint for offline tests.
+
+The provider reads the documented `/skills`, `/skills/search`, and `/skills/curated` endpoints. It accepts only GitHub-sourced entries and still verifies their `SKILL.md` against GitHub's immutable Git blob before suggesting them. Discovery does not perform a security audit, installation, or registry modification.
+
 ## Matching
 
 The script reads `packages/autoskills/skills-map.ts`, combines skill names, descriptions, tags, categories, package/config-file detection signals, repository metadata, and verification/popularity metadata, then assigns a score and explains the evidence. It merges duplicate candidates from both APIs, excludes already-listed skills and basename conflicts, and checks upstream GitHub trees for an actual `SKILL.md` before suggesting a full `owner/repository/skill` reference.
