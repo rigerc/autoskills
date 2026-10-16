@@ -137,3 +137,37 @@ test('advanced cache and report settings are persisted in wizard options', async
   strictEqual(result.selectionOutput, 'shortlist.json');
   strictEqual(result.selectionMarkdown, 'shortlist.md');
 });
+
+
+test('Skills.sh provider advanced controls include leaderboard, pages and curated toggle', async () => {
+  const previous = process.env.VERCEL_OIDC_TOKEN;
+  process.env.VERCEL_OIDC_TOKEN = 'fake-oidc-token-for-test';
+  try {
+    const {result, prompts} = await runWizard([
+      'skillssh','react','balanced','yes','providers','4','hot','2','8','no','done','no',
+    ]);
+    strictEqual(result.source, 'skillssh');
+    strictEqual(result.queriesPerTech, 4);
+    strictEqual(result.skillsshView, 'hot');
+    strictEqual(result.skillsshPages, 2);
+    strictEqual(result.skillsshSearches, 8);
+    strictEqual(result.skillsshCurated, false);
+    strictEqual(prompts.some(x => x.includes('Directory text')), false);
+    strictEqual(prompts.some(x => x.includes('SkillsMD filter')), false);
+  } finally {
+    if (previous === undefined) delete process.env.VERCEL_OIDC_TOKEN;
+    else process.env.VERCEL_OIDC_TOKEN = previous;
+  }
+});
+
+test('wizard presets preserve explicit flags and no-interactive review default', async () => {
+  const initial = wizardDefaults();
+  initial.verifyLimit = 123;
+  initial.interactive = 'off';
+  const {result} = await runWizard(
+    ['both','','quick','no',''], initial,
+    ['--source','both','--verify-limit','123','--no-interactive']);
+  strictEqual(result.verifyLimit, 123);
+  strictEqual(result.directorySearches, 12);
+  strictEqual(result.interactive, 'off');
+});
