@@ -565,14 +565,14 @@ function markdownReport(report,opts) {
       lines.push(`- **\`${item.skillPath}\`** — score **${match.score}**; sources: **${item.sources.join(', ')}**`);
       if(d?.description) lines.push(`  - Directory: ${safeText(d.name)} — ${safeText(d.description).slice(0,260)}`);
       if(sh?.name) lines.push(`  - Skills.sh: ${safeText(sh.name)} (${sh.installs} installs)`);
-       if(sm?.description) lines.push(`  - SkillsMD repository: ${safeText(sm.name)} — ${safeText(sm.description).slice(0,260)}`);
+      if(sm?.description) lines.push(`  - SkillsMD repository: ${safeText(sm.name)} — ${safeText(sm.description).slice(0,260)}`);
       lines.push(`  - Relevance: **${match.relevanceScore}**; quality: **${match.qualityScore}** (tie-breaker)`);
       lines.push(`  - Evidence: ${safeText(match.reasons.join('; '))}`);
       if(item.skillBlobSha) lines.push(`  - Verified SKILL.md Git blob: \`${item.skillBlobSha}\``);
       const links=[`[SKILL.md directory](${item.githubUrl})`];
       if(d?.slug) links.push(`[Skills Directory](https://www.skillsdirectory.com/api/registry/${encodeURIComponent(d.slug)})`);
       if(sm?.repository) links.push(`[SkillsMD](https://skillsmd.dev/api/skill?repo=${encodeURIComponent(sm.repository)})`);
-       if(sh?.url) links.push(`[Skills.sh](${sh.url})`);
+      if(sh?.url) links.push(`[Skills.sh](${sh.url})`);
       lines.push(`  - ${links.join(' · ')}`);
       const tags=unique([...(d?.tags||[]),...(sm?.tags||[]),...(sm?.topics||[])]);
       if(tags.length) lines.push(`  - Tags/topics: ${tags.slice(0,15).map(safeText).join(', ')}`);
