@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Discover skill candidates for rigerc/autoskills from Skills Directory and SkillsMD.
+ * Discover skill candidates from Skills Directory, SkillsMD, and Skills.sh.
  *
  * Requirements: Node >=22.6 (no npm dependencies); run with:
  *   node --experimental-strip-types scripts/discover-autoskills.mjs --repo-root .
@@ -16,9 +16,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { norm, phrase, unique, basename, signals, domain,
   bestMatches, createQueryPlanner, parseSkillMarkdown } from './discovery-matcher.mjs';
 import { createDiscoveryCache, defaultCacheDir } from './discovery-cache.mjs';
+import { findSkillsSh } from './discovery-skillssh.mjs';
+import { configureDiscovery, shouldConfigureDiscovery } from './discovery-setup.mjs';
 
 const DEFAULT_DIRECTORY_API = 'https://www.skillsdirectory.com/api/registry';
 const DEFAULT_SKILLSMD_API = 'https://skillsmd.dev/api';
+const DEFAULT_SKILLSSH_API = 'https://skills.sh/api/v1';
 const DEFAULT_GITHUB_API = 'https://api.github.com';
 
 const REPO_RE = /^[a-z\d_.-]+\/[a-z\d_.-]+$/i;
@@ -33,7 +36,9 @@ function options(argv) {
     selectionMarkdown: 'skills-discovery.selected.md', interactive: 'auto',
     apiBase: process.env.SKILLS_DIRECTORY_API || DEFAULT_DIRECTORY_API,
     skillsmdApi: process.env.SKILLSMD_API || DEFAULT_SKILLSMD_API,
+    skillsshApi: process.env.SKILLS_SH_API || DEFAULT_SKILLSSH_API,
     source: 'both', skillsmdPages: 3, skillsmdSearches: 25, skillsmdFilter: 'all',
+    skillsshPages: 1, skillsshSearches: 25, skillsshView: 'trending', skillsshCurated: true,
     githubApi: process.env.GITHUB_API_URL || DEFAULT_GITHUB_API,
     cache: true, cacheDir: defaultCacheDir(), cacheTtlMinutes: 360, clearCache: false,
     verbose: false,
@@ -48,8 +53,9 @@ function options(argv) {
     '--output':'output','--markdown':'markdown',
     '--selection-output':'selectionOutput','--selection-markdown':'selectionMarkdown',
     '--api-base':'apiBase','--github-api':'githubApi',
-    '--skillsmd-api':'skillsmdApi', '--source':'source',
+    '--skillsmd-api':'skillsmdApi', '--skillssh-api':'skillsshApi', '--source':'source',
     '--skillsmd-pages':'skillsmdPages', '--skillsmd-searches':'skillsmdSearches', '--skillsmd-filter':'skillsmdFilter',
+    '--skillssh-pages':'skillsshPages', '--skillssh-searches':'skillsshSearches', '--skillssh-view':'skillsshView',
     '--cache-dir':'cacheDir', '--cache-ttl-minutes':'cacheTtlMinutes',
   };
   for (let i=0; i<argv.length; i++) {
@@ -57,12 +63,12 @@ function options(argv) {
     if (flag === '-h' || flag === '--help') {
       console.log(`Usage: node --experimental-strip-types discover-autoskills.mjs [options]
 
-Find Skills Directory and SkillsMD entries related to autoskills' skills-map.ts.
+Find Skills Directory, SkillsMD and Skills.sh entries related to autoskills' skills-map.ts.
 Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
 
   --repo-root DIR       Repository checkout (auto-detected if omitted)
   --tech IDS            Comma-separated technology ids; default: all
-  --source NAME         both | skillsdirectory | skillsmd (default: both)
+  --source NAME         both | all | skillsdirectory | skillsmd | skillssh (default: both)
   --category SLUG       Optional Skills Directory category filter
   --sort MODE           recent | stars | votes (default: recent)
   --limit N             API records per page, 1..100 (default: 50)
@@ -77,12 +83,18 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --max-per-tech N      Suggestions per technology in markdown (default: 5)
   --output FILE|-       JSON report file (default: skills-discovery.json)
   --markdown FILE|-     Markdown report file (default: skills-discovery.md)
+  --configure           Prompt for discovery arguments (requires a TTY)
   --interactive         Force terminal review after discovery (requires a TTY)
   --no-interactive      Disable terminal review (also automatic in CI/pipes)
   --selection-output F  Shortlisted candidates JSON (default: skills-discovery.selected.json)
   --selection-markdown F Shortlisted candidates Markdown (default: skills-discovery.selected.md)
   --api-base URL        Skills Directory endpoint (for tests)
   --skillsmd-api URL    SkillsMD API base (for tests)
+  --skillssh-api URL    Skills.sh API v1 base (for tests)
+  --skillssh-pages N    Skills.sh leaderboard pages (default: 1)
+  --skillssh-searches N Maximum Skills.sh searches (default: 25)
+  --skillssh-view MODE  all-time | trending | hot (default: trending)
+  --no-skillssh-curated Skip Skills.sh first-party curated skills
   --github-api URL      GitHub API base (for tests)
   --cache               Enable persistent JSON response cache (default)
   --no-cache            Disable cache reads and writes
@@ -92,9 +104,14 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --verbose             Log API fetches to stderr
   --help                Show help
 
-Environment: GITHUB_TOKEN or GH_TOKEN (recommended for GitHub rate limits).
-The older documented /api/registry route is used; no API key is required
-by that documentation. --api-base/--github-api support local integration tests.
+Without flags in a TTY, an interactive setup prompts for source, technology,
+search intensity and review mode. --configure invokes it alongside other flags.
+
+Environment: GITHUB_TOKEN or GH_TOKEN (GitHub rate limits); VERCEL_OIDC_TOKEN
+(required for --source skillssh or all). Obtain via Vercel OIDC Federation and
+'vercel env pull'. See scripts/README-discover-autoskills.md for instructions.
+--source both keeps the original unauthenticated providers.
+--api-base/--github-api support local integration tests.
 `);
       process.exit(0);
     }
@@ -102,25 +119,28 @@ by that documentation. --api-base/--github-api support local integration tests.
     if (flag === '--cache') { out.cache = true; continue; }
     if (flag === '--no-cache') { out.cache = false; continue; }
     if (flag === '--clear-cache') { out.clearCache = true; continue; }
+    if (flag === '--no-skillssh-curated') { out.skillsshCurated = false; continue; }
     if (flag === '--interactive') { out.interactive = 'on'; continue; }
+    if (flag === '--configure') { out.configure = true; continue; }
     if (flag === '--no-interactive') { out.interactive = 'off'; continue; }
     const prop = names[flag];
     if (!prop) throw new Error(`Unknown flag: ${flag} (try --help)`);
     if (argv[i+1] === undefined || argv[i+1].startsWith('--')) throw new Error(`Missing value for ${flag}`);
     const raw = argv[++i];
     if (prop === 'tech') out.tech = raw.split(',').map(x=>x.trim()).filter(Boolean);
-    else if (['limit','pages','recentPages','categoryPages','queriesPerTech','minScore','detailsLimit','verifyLimit','maxPerTech','skillsmdPages','skillsmdSearches','directorySearches','cacheTtlMinutes'].includes(prop)) {
+    else if (['limit','pages','recentPages','categoryPages','queriesPerTech','minScore','detailsLimit','verifyLimit','maxPerTech','skillsmdPages','skillsmdSearches','skillsshPages','skillsshSearches','directorySearches','cacheTtlMinutes'].includes(prop)) {
       const n = Number(raw);
       if (!Number.isSafeInteger(n) || n < 0) throw new Error(`${flag} must be a nonnegative integer`);
       out[prop] = n;
     } else out[prop] = raw;
   }
-  if (!['both','skillsdirectory','skillsmd'].includes(out.source)) throw new Error('--source must be both, skillsdirectory, or skillsmd');
+  if (!['both','all','skillsdirectory','skillsmd','skillssh'].includes(out.source)) throw new Error('--source must be both, all, skillsdirectory, skillsmd, or skillssh');
   if (!['all','hot','trending'].includes(out.skillsmdFilter)) throw new Error('--skillsmd-filter must be all, hot, or trending');
+  if (!['all-time','hot','trending'].includes(out.skillsshView)) throw new Error('--skillssh-view must be all-time, hot, or trending');
   if (!['recent','stars','votes'].includes(out.sort)) throw new Error('--sort must be recent, stars, or votes');
   if (out.limit < 1 || out.limit > 100) throw new Error('--limit must be 1..100');
   if (out.cacheTtlMinutes > 43200) throw new Error('--cache-ttl-minutes must be 0..43200');
-  if (out.pages > 20 || out.recentPages > 20 || out.categoryPages > 20 || out.queriesPerTech > 6 || out.skillsmdPages > 30 || out.skillsmdSearches > 100 || out.directorySearches > 300) throw new Error('Page/query limits too high');
+  if (out.pages > 20 || out.recentPages > 20 || out.categoryPages > 20 || out.queriesPerTech > 6 || out.skillsmdPages > 30 || out.skillsmdSearches > 100 || out.skillsshPages > 30 || out.skillsshSearches > 100 || out.directorySearches > 300) throw new Error('Page/query limits too high');
   return out;
 }
 
@@ -412,17 +432,14 @@ function resolveInTree(skill, tree) {
   return {error:`ambiguous: ${tree.dirs.length} SKILL.md paths; cannot identify directory for ${skill.slug}`};
 }
 function balanceSources(entries) {
-  const dir=entries.filter(e=>e.source==='skillsdirectory');
-  const md=entries.filter(e=>e.source==='skillsmd');
-  if(!dir.length || !md.length) return entries;
+  const queues=['skillsdirectory','skillsmd','skillssh']
+    .map(source=>entries.filter(e=>e.source===source))
+    .filter(queue=>queue.length);
+  if(queues.length<2) return entries;
   const out=[];
-  while(dir.length || md.length) {
-    // Keep a minimum discovery allocation for both APIs when candidates abound.
-    for(let n=0;n<2&&dir.length;n++) out.push(dir.shift());
-    if(md.length) out.push(md.shift());
-    if(!dir.length) out.push(...md.splice(0));
-    if(!md.length) out.push(...dir.splice(0));
-  }
+  // Round robin prevents one provider from consuming the verification budget.
+  while(queues.some(queue=>queue.length))
+    for(const queue of queues) if(queue.length) out.push(queue.shift());
   return out;
 }
 function relatedSkillName(base,profiles) {
@@ -458,7 +475,7 @@ async function verify(entries,opts,existing) {
       const candidates=new Map();
       for(const item of group) {
         let paths=[];
-        if(item.source==='skillsdirectory') {
+        if(item.source==='skillsdirectory' || item.source==='skillssh') {
           const resolved=resolveInTree(item.skill,tree);
           if(resolved.error){item.notes.push(resolved.error);continue;}
           paths=[resolved.dir];
@@ -530,7 +547,7 @@ function markdownReport(report,opts) {
   const lines=[
     '# AutoSkills — registry skill discoveries','',
     `Generated: ${report.generatedAt}`,'',
-    `Mapped **${report.stats.technologies}** technologies. Skills Directory: **${report.stats.directoryRequests}** requests / **${report.stats.uniqueDirectorySkills}** entries. SkillsMD: **${report.stats.skillsmdRequests}** requests / **${report.stats.uniqueSkillsMdRepos}** repository entries.`,
+    `Mapped **${report.stats.technologies}** technologies. Skills Directory: **${report.stats.directoryRequests}** requests / **${report.stats.uniqueDirectorySkills}** entries. SkillsMD: **${report.stats.skillsmdRequests}** requests / **${report.stats.uniqueSkillsMdRepos}** repository entries. Skills.sh: **${report.stats.skillsshRequests}** requests / **${report.stats.uniqueSkillsShSkills}** entries.`,
     `Resolved **${report.matches.length}** new, non-colliding SKILL.md paths using GitHub (at most ${opts.verifyLimit} unique repository verification attempts).`,'',
     '**These are suggestions, not installed or security-approved skills.** Review every upstream file and license before editing `skills-map.ts`.','',
   ];
@@ -544,9 +561,10 @@ function markdownReport(report,opts) {
     if(!candidates.length) continue;
     lines.push(`## ${tech.name} (${tech.id})`,'');
     for(const {item,match} of candidates) {
-      const d=item.directory,sm=item.skillsmd;
+      const d=item.directory,sm=item.skillsmd,sh=item.skillssh;
       lines.push(`- **\`${item.skillPath}\`** — score **${match.score}**; sources: **${item.sources.join(', ')}**`);
       if(d?.description) lines.push(`  - Directory: ${safeText(d.name)} — ${safeText(d.description).slice(0,260)}`);
+      if(sh?.name) lines.push(`  - Skills.sh: ${safeText(sh.name)} (${sh.installs} installs)`);
       if(sm?.description) lines.push(`  - SkillsMD repository: ${safeText(sm.name)} — ${safeText(sm.description).slice(0,260)}`);
       lines.push(`  - Relevance: **${match.relevanceScore}**; quality: **${match.qualityScore}** (tie-breaker)`);
       lines.push(`  - Evidence: ${safeText(match.reasons.join('; '))}`);
@@ -554,6 +572,7 @@ function markdownReport(report,opts) {
       const links=[`[SKILL.md directory](${item.githubUrl})`];
       if(d?.slug) links.push(`[Skills Directory](https://www.skillsdirectory.com/api/registry/${encodeURIComponent(d.slug)})`);
       if(sm?.repository) links.push(`[SkillsMD](https://skillsmd.dev/api/skill?repo=${encodeURIComponent(sm.repository)})`);
+      if(sh?.url) links.push(`[Skills.sh](${sh.url})`);
       lines.push(`  - ${links.join(' · ')}`);
       const tags=unique([...(d?.tags||[]),...(sm?.tags||[]),...(sm?.topics||[])]);
       if(tags.length) lines.push(`  - Tags/topics: ${tags.slice(0,15).map(safeText).join(', ')}`);
@@ -587,7 +606,7 @@ async function interactiveReview(report, opts) {
   }
   const selected = new Set();
   const techs = ['all', ...unique(report.matches.flatMap(x => x.matches.map(m => m.id)))];
-  const sources = ['all', 'skillsdirectory', 'skillsmd'];
+  const sources = ['all', 'skillsdirectory', 'skillsmd', 'skillssh'];
   let techIndex = 0, sourceIndex = 0, cursor = 0, top = 0, detailOffset = 0;
   let search = '', pendingSearch = '', searching = false, selectedOnly = false;
   let view = 'list', status = 'Space selects candidates; e exports a review shortlist. No skills are installed.';
@@ -603,7 +622,7 @@ async function interactiveReview(report, opts) {
     if (search) {
       const hay = norm([
         x.skillPath, x.skillName, x.directory?.name, x.directory?.description,
-        x.skillsmd?.name, x.skillsmd?.description, x.directory?.category,
+        x.skillsmd?.name, x.skillsmd?.description, x.skillssh?.name, x.directory?.category,
         ...(x.directory?.tags || []), ...(x.skillsmd?.tags || []),
         ...(x.skillsmd?.topics || []), ...x.matches.flatMap(m => [m.id, m.name, ...m.reasons])
       ].join(' '));
@@ -646,8 +665,8 @@ async function interactiveReview(report, opts) {
           `Sources: ${item.sources.join(', ')} | Confidence: ${item.confidence}`,
           `Category: ${item.directory?.category || 'not provided'}`,
           `License: ${item.directory?.github?.license || item.skillsmd?.license || 'unknown'}`,
-          `GitHub stars: ${item.directory?.stars ?? item.skillsmd?.stars ?? 'unknown'} | SkillsMD installs: ${item.skillsmd?.installs ?? 'unknown'}`,
-          `Description: ${item.directory?.description || item.skillsmd?.description || '(none)'}`,
+          `GitHub stars: ${item.directory?.stars ?? item.skillsmd?.stars ?? 'unknown'} | SkillsMD installs: ${item.skillsmd?.installs ?? 'unknown'} | Skills.sh installs: ${item.skillssh?.installs ?? 'unknown'}`,
+          `Description: ${item.directory?.description || item.skillsmd?.description || item.skillssh?.name || '(none)'}`,
           `Tags: ${unique([...(item.directory?.tags || []), ...(item.skillsmd?.tags || []), ...(item.skillsmd?.topics || [])]).join(', ') || '(none)'}`,
           ...item.matches.flatMap(m => [
             `${m.name} (${m.id}): ${m.score} points`,
@@ -667,7 +686,7 @@ async function interactiveReview(report, opts) {
         const item = items[i];
         const mark = selected.has(item.skillPath) ? 'x' : ' ';
         const tech = item.matches[0]?.id || '?';
-        const src = item.sources.map(s => s === 'skillsdirectory' ? 'D' : 'M').join('+');
+        const src = item.sources.map(s => s === 'skillsdirectory' ? 'D' : s === 'skillsmd' ? 'M' : 'S').join('+');
         lines.push(fit(`${cursor === i ? '>' : ' '} [${mark}] ${String(item.score).padStart(3)} ${tech.padEnd(16).slice(0, 16)} ${item.skillPath} [${src}]`));
       }
       lines.push(fit(`Showing ${items.length ? top + 1 : 0}-${Math.min(items.length, top + limit)} of ${items.length}`));
@@ -779,7 +798,8 @@ function outputFile(filepath,content) {
   console.error(`Wrote ${dest}`);
 }
 async function main() {
-  const opts=options(process.argv.slice(2));
+  const argv=process.argv.slice(2);
+  const opts=options(argv);
   if(opts.interactive==='on' && (!process.stdin.isTTY || !process.stdout.isTTY)) {
     throw new Error('--interactive requires a TTY terminal; use --no-interactive in pipes and CI.');
   }
@@ -795,6 +815,11 @@ async function main() {
   const map=await import(pathToFileURL(join(pkg,'skills-map.ts')).href);
   const all=map.SKILLS_MAP;
   if(!Array.isArray(all)) throw new Error('Expected SKILLS_MAP export in skills-map.ts');
+  if(opts.configure && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    throw new Error('--configure requires a TTY terminal; use explicit flags in CI or pipes.');
+  }
+  if(shouldConfigureDiscovery(argv,process.stdin,process.stdout))
+    await configureDiscovery(opts,all,argv);
   const filtered=opts.tech.length?all.filter(t=>opts.tech.includes(t.id)):all;
   if(opts.tech.length && filtered.length!==new Set(opts.tech).size) {
     throw new Error(`Unknown --tech ids: ${opts.tech.filter(id=>!all.some(t=>t.id===id)).join(', ')}`);
@@ -805,8 +830,12 @@ async function main() {
   const existing=listSkillPaths(map,manifest);
   const profiles=filtered.map(signals);
   opts.profiles=profiles;
-  const useDirectory=opts.source==='both'||opts.source==='skillsdirectory';
-  const useMd=opts.source==='both'||opts.source==='skillsmd';
+  const useDirectory=['both','all','skillsdirectory'].includes(opts.source);
+  const useMd=['both','all','skillsmd'].includes(opts.source);
+  const useSh=['all','skillssh'].includes(opts.source);
+  if(useSh && !process.env.VERCEL_OIDC_TOKEN?.trim()) throw new Error(
+    'Skills.sh requires VERCEL_OIDC_TOKEN. Enable Vercel OIDC Federation, pull the token, and export it before running.'
+  );
   const found=useDirectory ? await findDirectory(opts,profiles).catch(e=>{
     console.error(`Skills Directory unavailable: ${e.message}`);
     return {items:[],stats:{requests:0,rows:0},errors:[e.message]};
@@ -815,8 +844,12 @@ async function main() {
     console.error(`SkillsMD unavailable: ${e.message}`);
     return {items:[],stats:{requests:0,rows:0},errors:[e.message]};
   }) : {items:[],stats:{requests:0,rows:0},errors:[]};
-  if(found.stats.requests===0 && md.stats.requests===0) {
-    throw new Error(`Neither requested discovery API returned results: ${[...found.errors,...md.errors].join('; ')}`);
+  const sh=useSh ? await findSkillsSh(opts,profiles,jsonFetch,urlFor).catch(e=>{
+    console.error(`Skills.sh unavailable: ${e.message}`);
+    return {items:[],stats:{requests:0,rows:0},errors:[e.message]};
+  }) : {items:[],stats:{requests:0,rows:0},errors:[]};
+  if(found.stats.requests===0 && md.stats.requests===0 && sh.stats.requests===0) {
+    throw new Error(`Neither requested discovery API returned results: ${[...found.errors,...md.errors,...sh.errors].join('; ')}`);
   }
   const directoryCandidates=[];
   for(const skill of found.items) {
@@ -835,7 +868,13 @@ async function main() {
   }
   mdCandidates.sort((a,b)=>b.score-a.score);
   await enrichSkillsMd(mdCandidates,opts);
-  const candidates=[...directoryCandidates,...mdCandidates]
+  const shCandidates=[];
+  for(const skill of sh.items) {
+    const matches=bestMatches(skill,profiles,opts.minScore);
+    shCandidates.push({source:'skillssh',skill,matches,score:matches[0]?.score??0,notes:[]});
+  }
+  shCandidates.sort((a,b)=>b.score-a.score);
+  const candidates=[...directoryCandidates,...mdCandidates,...shCandidates]
     // Provisional retrieval cutoff: final min-score and eligibility are applied
     // only after reading the immutable SKILL.md content.
     .filter(x=>x.score>=Math.min(15,opts.minScore))
@@ -844,6 +883,7 @@ async function main() {
   const final=verified.map(item=>{
     const directoryE=item.evidence.find(e=>e.source==='skillsdirectory');
     const mdE=item.evidence.find(e=>e.source==='skillsmd');
+    const shE=item.evidence.find(e=>e.source==='skillssh');
     const directory=directoryE && {
       name:directoryE.skill.name,slug:directoryE.skill.slug,repository:directoryE.skill.repository,
       description:directoryE.skill.description,category:directoryE.skill.category,
@@ -859,11 +899,15 @@ async function main() {
       license:mdE.skill.license,updated:mdE.skill.updated,
       hot:mdE.skill.hot,trending:mdE.skill.trending,
     };
+    const skillssh=shE && {
+      name:shE.skill.name,repository:shE.skill.repository,slug:shE.skill.slug,
+      installs:shE.skill.installs,url:shE.skill.skillsshUrl,
+    };
     return {
       skillPath:item.skillPath,skillName:item.skillName,directoryPath:item.directoryPath,
       githubUrl:item.githubUrl,skillBlobSha:item.skillBlobSha,
       confidence:item.confidence,sources:unique(item.sources),
-      score:item.score,matches:item.matches,directory,skillsmd,
+      score:item.score,matches:item.matches,directory,skillsmd,skillssh,
       notes:unique(item.evidence.flatMap(e=>e.notes)),
     };
   });
@@ -871,21 +915,23 @@ async function main() {
     generatedAt:new Date().toISOString(),
     directoryApi:useDirectory?opts.apiBase:null,
     skillsmdApi:useMd?opts.skillsmdApi:null,
+    skillsshApi:useSh?opts.skillsshApi:null,
     repository:'rigerc/autoskills',
     stats:{technologies:filtered.length,directoryRequests:found.stats.requests,
       directoryRows:found.stats.rows,uniqueDirectorySkills:found.items.length,
       skillsmdRequests:md.stats.requests,skillsmdRows:md.stats.rows,
       uniqueSkillsMdRepos:new Set(md.items.map(x=>x.repository.toLowerCase())).size,
+      skillsshRequests:sh.stats.requests,skillsshRows:sh.stats.rows,uniqueSkillsShSkills:sh.items.length,
       semanticCandidates:candidates.length,githubVerified:final.length,
       cache:{enabled:discoveryCache.enabled,directory:discoveryCache.dir,...discoveryCache.stats}},
     technologies:filtered.map(x=>({id:x.id,name:x.name})),
     matches:final,
-    errors:[...found.errors,...md.errors,...candidates.flatMap(x=>x.notes.map(n=>`${x.source} ${x.skill.repository}: ${n}`))],
+    errors:[...found.errors,...md.errors,...sh.errors,...candidates.flatMap(x=>x.notes.map(n=>`${x.source} ${x.skill.repository}: ${n}`))],
   };
   if(opts.output===opts.markdown) throw new Error('JSON and Markdown output paths must differ (including stdout)');
   outputFile(opts.output,JSON.stringify(report,null,2));
   outputFile(opts.markdown,markdownReport(report,opts));
-  console.error(`Done: ${report.stats.uniqueDirectorySkills} Skills Directory entries + ${report.stats.uniqueSkillsMdRepos} SkillsMD repos; ${candidates.length} matched entries; ${final.length} new GitHub-verified SKILL.md paths.`);
+  console.error(`Done: ${report.stats.uniqueDirectorySkills} Skills Directory entries + ${report.stats.uniqueSkillsMdRepos} SkillsMD repos + ${report.stats.uniqueSkillsShSkills} Skills.sh entries; ${candidates.length} matched entries; ${final.length} new GitHub-verified SKILL.md paths.`);
   console.error(`Cache: ${discoveryCache.stats.hits} hits, ${discoveryCache.stats.misses} misses, ${discoveryCache.stats.networkRequests} HTTP attempts, ${discoveryCache.stats.writes} writes (${discoveryCache.enabled ? discoveryCache.dir : 'disabled'}).`);
   if (opts.interactive==='on' || (opts.interactive==='auto' && process.stdin.isTTY && process.stdout.isTTY && opts.output!=='-' && opts.markdown!=='-')) {
     await interactiveReview(report,opts);
