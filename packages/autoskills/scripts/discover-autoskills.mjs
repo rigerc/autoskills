@@ -17,6 +17,7 @@ import { norm, phrase, unique, basename, signals, domain,
   bestMatches, createQueryPlanner, parseSkillMarkdown } from './discovery-matcher.mjs';
 import { createDiscoveryCache, defaultCacheDir } from './discovery-cache.mjs';
 import { findSkillsSh } from './discovery-skillssh.mjs';
+import { configureDiscovery, shouldConfigureDiscovery } from './discovery-setup.mjs';
 
 const DEFAULT_DIRECTORY_API = 'https://www.skillsdirectory.com/api/registry';
 const DEFAULT_SKILLSMD_API = 'https://skillsmd.dev/api';
@@ -82,6 +83,7 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --max-per-tech N      Suggestions per technology in markdown (default: 5)
   --output FILE|-       JSON report file (default: skills-discovery.json)
   --markdown FILE|-     Markdown report file (default: skills-discovery.md)
+  --configure           Prompt for discovery arguments (requires a TTY)
   --interactive         Force terminal review after discovery (requires a TTY)
   --no-interactive      Disable terminal review (also automatic in CI/pipes)
   --selection-output F  Shortlisted candidates JSON (default: skills-discovery.selected.json)
@@ -102,6 +104,9 @@ Outputs reviewed-but-NOT-installed proposals; never edits the registry or map.
   --verbose             Log API fetches to stderr
   --help                Show help
 
+Without flags in a TTY, an interactive setup prompts for source, technology,
+search intensity and review mode. --configure invokes it alongside other flags.
+
 Environment: GITHUB_TOKEN or GH_TOKEN (GitHub rate limits); VERCEL_OIDC_TOKEN
 (required for --source skillssh or all). Obtain via Vercel OIDC Federation and
 'vercel env pull'. See scripts/README-discover-autoskills.md for instructions.
@@ -116,6 +121,7 @@ Environment: GITHUB_TOKEN or GH_TOKEN (GitHub rate limits); VERCEL_OIDC_TOKEN
     if (flag === '--clear-cache') { out.clearCache = true; continue; }
     if (flag === '--no-skillssh-curated') { out.skillsshCurated = false; continue; }
     if (flag === '--interactive') { out.interactive = 'on'; continue; }
+    if (flag === '--configure') { out.configure = true; continue; }
     if (flag === '--no-interactive') { out.interactive = 'off'; continue; }
     const prop = names[flag];
     if (!prop) throw new Error(`Unknown flag: ${flag} (try --help)`);
@@ -792,7 +798,8 @@ function outputFile(filepath,content) {
   console.error(`Wrote ${dest}`);
 }
 async function main() {
-  const opts=options(process.argv.slice(2));
+  const argv=process.argv.slice(2);
+  const opts=options(argv);
   if(opts.interactive==='on' && (!process.stdin.isTTY || !process.stdout.isTTY)) {
     throw new Error('--interactive requires a TTY terminal; use --no-interactive in pipes and CI.');
   }
@@ -808,6 +815,11 @@ async function main() {
   const map=await import(pathToFileURL(join(pkg,'skills-map.ts')).href);
   const all=map.SKILLS_MAP;
   if(!Array.isArray(all)) throw new Error('Expected SKILLS_MAP export in skills-map.ts');
+  if(opts.configure && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    throw new Error('--configure requires a TTY terminal; use explicit flags in CI or pipes.');
+  }
+  if(shouldConfigureDiscovery(argv,process.stdin,process.stdout))
+    await configureDiscovery(opts,all,argv);
   const filtered=opts.tech.length?all.filter(t=>opts.tech.includes(t.id)):all;
   if(opts.tech.length && filtered.length!==new Set(opts.tech).size) {
     throw new Error(`Unknown --tech ids: ${opts.tech.filter(id=>!all.some(t=>t.id===id)).join(', ')}`);
