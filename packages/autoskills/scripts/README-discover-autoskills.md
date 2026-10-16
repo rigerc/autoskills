@@ -29,6 +29,29 @@ node --experimental-strip-types packages/autoskills/scripts/discover-autoskills.
 
 Run `--help` to see all discovery, pagination, threshold, API URL, and output options. The default reports are `skills-discovery.json` and `skills-discovery.md` in your working directory.
 
+## Interactive discovery setup (TTY)
+
+When run **without arguments** in a terminal, discovery prompts for the options rather than immediately launching a large search:
+
+```bash
+pnpm --dir packages/autoskills discover:skills
+```
+
+The wizard asks for a **source**, **technologies**, **search intensity**, and **whether to review matches interactively**. Press **Enter** to accept each default:
+
+- **Source:** `both` (Skills Directory + SkillsMD) if no Vercel token is available; `all` (including Skills.sh) if `VERCEL_OIDC_TOKEN` is set. `skillssh` and `all` are unavailable without a token.
+- **Technologies:** `all` by default. Choose `gaps` to search only technologies with no registered skills, enter comma-separated technology IDs (e.g. `react,playwright`), or `?` to list valid IDs.
+- **Search intensity:** `balanced` by default (30 directory searches, 15 searches per other source, 30 unique GitHub repository checks). `quick` uses smaller budgets; `thorough` expands them.
+- **Review:** `yes` by default, opening the existing interactive result browser at the end.
+
+You can force the setup even when passing CLI flags:
+
+```bash
+pnpm --dir packages/autoskills discover:skills --configure --tech react
+```
+
+Explicit search-budget flags take precedence over wizard intensity presets. Existing CLI flags continue to work without questions, and **non-TTY / CI runs never open the setup** (use `--no-interactive` for fully non-interactive review as well). `--configure` fails clearly when no terminal is attached.
+
 ## Interactive terminal review
 
 When stdin and stdout are TTYs, `discover:skills` automatically presents an interactive, keyboard-controlled result browser **after** writing the normal reports. Force it with `--interactive`, or disable it with `--no-interactive`. In CI or piped commands, the default is non-interactive.
