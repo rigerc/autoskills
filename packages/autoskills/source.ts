@@ -74,9 +74,10 @@ export async function sourceFetch(url: string, opts: SourceOptions): Promise<Res
   return res;
 }
 
-export async function fetchSourceTree(repo: string, opts: SourceOptions): Promise<SourceTree> {
-  const head = await sourceFetch(`https://api.github.com/repos/${repo}/commits/HEAD`, opts);
-  const { sha } = (await head.json()) as { sha: string };
+export async function fetchSourceTree(repo: string, opts: SourceOptions, revision?: string): Promise<SourceTree> {
+  const { sha } = revision
+    ? { sha: revision }
+    : (await (await sourceFetch(`https://api.github.com/repos/${repo}/commits/HEAD`, opts)).json()) as { sha: string };
   if (!/^[a-f0-9]{40}$/i.test(sha)) throw new Error(`invalid HEAD for ${repo}`);
   const res = await sourceFetch(
     `https://api.github.com/repos/${repo}/git/trees/${sha}?recursive=1`,
@@ -93,6 +94,8 @@ export async function resolveSourceSkill(
   skill: string,
   opts: SourceOptions = {},
   preferredPath?: string,
+  exact = false,
+  revision?: string,
 ): Promise<SourceSkill> {
   const { repo, skillName } = parseSkillPath(skill);
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !safeSourcePath(skillName)) {
@@ -100,10 +103,11 @@ export async function resolveSourceSkill(
   }
   const name = skillName.split("/").at(-1)!;
   if (name.startsWith(".")) throw new Error(`invalid skill name: ${name}`);
-  let pending = opts.repoTrees?.get(repo);
+  const treeKey = `${repo}@${revision ?? "HEAD"}`;
+  let pending = opts.repoTrees?.get(treeKey);
   if (!pending) {
-    pending = fetchSourceTree(repo, opts);
-    opts.repoTrees?.set(repo, pending);
+    pending = fetchSourceTree(repo, opts, revision);
+    opts.repoTrees?.set(treeKey, pending);
   }
   const tree = await pending;
   const dirs = tree.files
@@ -120,6 +124,9 @@ export async function resolveSourceSkill(
       dir.endsWith(`/${skillName}/skills`),
   );
   candidates.sort((a, b) => a.length - b.length || a.localeCompare(b));
+  if (exact && (preferredPath === undefined || !dirs.includes(preferredPath))) {
+    throw new Error(`exact skill path '${preferredPath}' not found in ${repo}`);
+  }
   const skillPath =
     preferredPath !== undefined && dirs.includes(preferredPath)
       ? preferredPath
@@ -158,6 +165,17 @@ export async function resolveSourceSkill(
         .join("\n"),
     ),
   };
+}
+
+export function resolveSourceSkillExact(
+  repo: string,
+  name: string,
+  directory: string,
+  opts: SourceOptions = {},
+  revision?: string,
+): Promise<SourceSkill> {
+  if (directory !== "" && !safeSourcePath(directory)) throw new Error(`invalid exact skill directory: ${directory}`);
+  return resolveSourceSkill(`${repo}/${name}`, opts, directory, true, revision);
 }
 
 // Bound raw downloads across concurrently installed skills.
