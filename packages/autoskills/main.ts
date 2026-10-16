@@ -103,6 +103,9 @@ function showHelp(): void {
     npx autoskills ${dim("--dry-run")}            Show what would be installed
     npx autoskills ${dim("--clear-cache")}        Clear downloaded skills cache
     npx autoskills ${dim("--repos ./projects -y")} Install in Git repositories under a directory
+    npx autoskills ${dim("registry add personal ~/my-skills")} Add a local registry
+    npx autoskills ${dim("registry add team owner/repo")} Add a GitHub registry
+    npx autoskills ${dim("registry list")}          List configured registries
     npx autoskills ${dim("-a cursor claude-code")} Install for specific IDEs only
 
   ${bold("Options:")}
@@ -528,7 +531,7 @@ async function main(): Promise<void> {
   const opts = parseArgs();
   const { command, help, clearCache, port, noOpen, reposDir } = opts;
 
-  if (command && command !== "ui" && command !== "update") {
+  if (command && command !== "ui" && command !== "update" && command !== "registry") {
     log(yellow(`   Unknown command: ${command}`));
     showHelp();
     process.exit(1);
@@ -537,6 +540,13 @@ async function main(): Promise<void> {
   if (help) {
     showHelp();
     process.exit(0);
+  }
+
+  if (command === "registry") {
+    if (reposDir !== null) throw new Error("--repos is not supported with registry management");
+    const { runRegistryCommand } = await import("./registry-cli.ts");
+    await runRegistryCommand(process.argv.slice(3), resolve("."));
+    return;
   }
 
   if (reposDir !== null && (command === "ui" || clearCache)) {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
@@ -61,7 +61,14 @@ function parseConfig(input: unknown, file: string): Record<string, ConfiguredReg
   return registries;
 }
 
-function readConfig(file: string): Record<string, RegistrySource> {
+export function validateRegistrySource(name: string, source: RegistrySource): void {
+  const raw = source.type === "local"
+    ? { directory: source.directory, ...(source.manifest ? { manifest: source.manifest } : {}) }
+    : { repository: source.repository, manifest: source.manifest };
+  parseConfig({ version: 1, registries: { [name]: raw } }, "registry argument");
+}
+
+function readRawConfig(file: string): Record<string, RegistrySource> {
   if (!existsSync(file)) return {};
   let parsed: unknown;
   try {
@@ -69,7 +76,11 @@ function readConfig(file: string): Record<string, RegistrySource> {
   } catch (error) {
     invalid(file, "JSON", `could not parse file: ${(error as Error).message}`);
   }
-  const registries = parseConfig(parsed, file);
+  return parseConfig(parsed, file);
+}
+
+function readConfig(file: string): Record<string, RegistrySource> {
+  const registries = readRawConfig(file);
   return Object.fromEntries(Object.entries(registries).map(([name, source]) => [
     name,
     source.type === "local"
@@ -83,10 +94,36 @@ export function resolveRegistryConfig(
   projectDir: string,
   options: { homeDir?: string; configHome?: string } = {},
 ): ResolvedRegistryConfig {
-  const homeDir = options.homeDir ?? homedir();
-  const configHome = options.configHome ?? process.env.XDG_CONFIG_HOME ?? join(homeDir, ".config");
-  const userFile = join(isAbsolute(configHome) ? configHome : resolve(homeDir, configHome), "autoskills", "config.json");
-  const projectFile = join(resolve(projectDir), "autoskills.json");
+  const userFile = registryConfigFile(projectDir, "global", options);
+  const projectFile = registryConfigFile(projectDir, "project", options);
   const registries = { ...readConfig(userFile), ...readConfig(projectFile) };
   return { version: 1, includeBuiltIn: true, registries };
+}
+
+export type RegistryScope = "project" | "global";
+export function registryConfigFile(projectDir: string, scope: RegistryScope, options: { homeDir?: string; configHome?: string } = {}): string {
+  if (scope === "project") return join(resolve(projectDir), "autoskills.json");
+  const homeDir = options.homeDir ?? homedir();
+  const configHome = options.configHome ?? process.env.XDG_CONFIG_HOME ?? join(homeDir, ".config");
+  return join(isAbsolute(configHome) ? configHome : resolve(homeDir, configHome), "autoskills", "config.json");
+}
+
+export function readScopedRegistries(projectDir: string, scope: RegistryScope, options: { homeDir?: string; configHome?: string } = {}): Record<string, RegistrySource> {
+  return readRawConfig(registryConfigFile(projectDir, scope, options));
+}
+
+export function writeScopedRegistries(projectDir: string, scope: RegistryScope, registries: Record<string, RegistrySource>, options: { homeDir?: string; configHome?: string } = {}): string {
+  const file = registryConfigFile(projectDir, scope, options);
+  const raw = Object.fromEntries(Object.entries(registries).map(([name, source]) => [name,
+    source.type === "local"
+      ? { directory: source.directory, ...(source.manifest ? { manifest: source.manifest } : {}) }
+      : { repository: source.repository, ...(source.manifest === "catalog.json" ? {} : { manifest: source.manifest }) },
+  ]));
+  parseConfig({ version: 1, registries: raw }, file);
+  if (existsSync(file) && lstatSync(file).isSymbolicLink()) throw new Error(`Refusing to replace symlink config ${file}`);
+  mkdirSync(dirname(file), { recursive: true });
+  const temp = `${file}.${process.pid}.tmp`;
+  writeFileSync(temp, `${JSON.stringify({ version: 1, registries: raw }, null, 2)}\n`);
+  renameSync(temp, file);
+  return file;
 }

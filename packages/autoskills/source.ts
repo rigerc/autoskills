@@ -8,14 +8,14 @@ export interface SourceOptions {
   repoTrees?: Map<string, Promise<SourceTree>>;
 }
 
-interface TreeFile {
+export interface TreeFile {
   path: string;
   type: string;
   mode: string;
   sha: string;
 }
 
-interface SourceTree {
+export interface SourceTree {
   commitSha: string;
   files: TreeFile[];
 }
@@ -51,7 +51,7 @@ export function bundleHash(files: { path: string; content: Buffer }[]): string {
   );
 }
 
-async function sourceFetch(url: string, opts: SourceOptions): Promise<Response> {
+export async function sourceFetch(url: string, opts: SourceOptions): Promise<Response> {
   opts.onTrace?.(`GET ${url}`);
   const headers: Record<string, string> = { "User-Agent": "autoskills" };
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
@@ -74,7 +74,7 @@ async function sourceFetch(url: string, opts: SourceOptions): Promise<Response> 
   return res;
 }
 
-async function fetchSourceTree(repo: string, opts: SourceOptions): Promise<SourceTree> {
+export async function fetchSourceTree(repo: string, opts: SourceOptions): Promise<SourceTree> {
   const head = await sourceFetch(`https://api.github.com/repos/${repo}/commits/HEAD`, opts);
   const { sha } = (await head.json()) as { sha: string };
   if (!/^[a-f0-9]{40}$/i.test(sha)) throw new Error(`invalid HEAD for ${repo}`);
