@@ -8,7 +8,7 @@ import { bestMatches, createQueryPlanner } from './discovery-matcher.mjs';
 const REPO_RE = /^[a-z\d_.-]+\/[a-z\d_.-]+$/i;
 
 export function normalizeSkillsSh(raw) {
-  if (!raw || typeof raw !== 'object' || raw.sourceType !== 'github') return null;
+  if (!raw || typeof raw !== 'object' || raw.sourceType !== 'github' || raw.isDuplicate === true) return null;
   const repository = String(raw.source || '').trim();
   const slug = String(raw.slug || '').trim();
   if (!REPO_RE.test(repository) || !/^[a-z0-9][a-z0-9_.-]*$/i.test(slug)) return null;
