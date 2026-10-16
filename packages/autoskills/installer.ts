@@ -19,8 +19,9 @@ import { fileURLToPath } from "node:url";
 
 import { parseSkillPath } from "./lib.ts";
 import type { SkillEntry } from "./lib.ts";
-import { bundleHash, downloadSourceSkill, resolveSourceSkill } from "./source.ts";
+import { bundleHash, downloadSourceSkill, resolveSourceSkill, resolveSourceSkillExact } from "./source.ts";
 import type { SourceOptions, SourceSkill } from "./source.ts";
+import type { LoadedRegistrySkill } from "./registry.ts";
 import { AGENT_FOLDER_MAP } from "./skills-map.ts";
 import { log, write, dim, green, cyan, red, HIDE_CURSOR, SHOW_CURSOR, SPINNER } from "./colors.ts";
 
@@ -215,6 +216,8 @@ export interface LockedSkill {
   sourceHash?: string;
   computedHash?: string;
   agents?: string[];
+  registry?: string;
+  catalogRevision?: string;
 }
 
 export function readSkillsLock(projectDir: string): {
@@ -330,12 +333,123 @@ export async function installSkill(
   }
 }
 
+export function readLocalSkillBundle(root: string): { path: string; content: Buffer; executable: boolean }[] {
+  if (!lstatSync(root).isDirectory()) throw new Error(`local source is not a directory: ${root}`);
+  const files: { path: string; content: Buffer; executable: boolean }[] = [];
+  function walk(dir: string, prefix = ""): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) throw new Error(`symlinks are not allowed in local skills: ${path}`);
+      if (stat.isDirectory()) walk(path, rel);
+      else if (stat.isFile()) files.push({ path: rel, content: readFileSync(path), executable: Boolean(stat.mode & 0o111) });
+      else throw new Error(`unsupported file in local skill: ${path}`);
+    }
+  }
+  walk(root);
+  if (!files.some((file) => file.path === "SKILL.md")) throw new Error(`SKILL.md missing from local source ${root}`);
+  return files;
+}
+
+export function localBundleSourceHash(files: { path: string; content: Buffer; executable: boolean }[]): string {
+  return createHash("sha256").update(files.map((file) =>
+    `${file.path}:${createHash("sha256").update(file.content).digest("hex")}:${file.executable}`,
+  ).sort().join("\n")).digest("hex");
+}
+
+/** Copy a catalog skill from its recorded source, keeping its source identity. */
+export async function installRegistrySkill(
+  skill: LoadedRegistrySkill,
+  agents: string[] = [],
+  opts: InstallOptions = {},
+): Promise<InstallResult> {
+  const projectDir = opts.projectDir || process.cwd();
+  const name = skill.entry.id;
+  const command = `autoskills registry install ${skill.registry}/${name}`;
+  try {
+    if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) throw new Error(`invalid catalog skill name: ${name}`);
+    const origin = skill.origin;
+    let files: { path: string; content: Buffer; executable: boolean }[];
+    let record: LockedSkill;
+    if (origin.type === "local") {
+      const root = origin.directory;
+      files = readLocalSkillBundle(root);
+      record = { source: root, sourceType: "local", sourceHash: localBundleSourceHash(files), registry: skill.registry };
+    } else {
+      const source = await resolveSourceSkillExact(origin.repository, name, origin.directory, opts, origin.revision);
+      files = await downloadSourceSkill(source, opts);
+      record = {
+        source: source.source, sourceType: "github", skillPath: source.skillPath,
+        commitSha: source.commitSha, sourceHash: source.sourceHash,
+        registry: skill.registry, ...(skill.catalogRevision ? { catalogRevision: skill.catalogRevision } : {}),
+      };
+    }
+    const skillsDir = join(projectDir, ".agents", "skills");
+    const canonicalDir = join(skillsDir, name);
+    const current = readSkillsLock(projectDir).skills[name];
+    if (!record.catalogRevision && current?.catalogRevision) record.catalogRevision = current.catalogRevision;
+    if (current) {
+      const sameSource = current.source === record.source &&
+        (current.sourceType === record.sourceType || (current.sourceType === "autoskills-registry" && record.sourceType === "github")) &&
+        (current.skillPath ?? "") === (record.skillPath ?? "");
+      if (!sameSource) throw new Error(`skill ${name} is already installed from another source`);
+    } else if (existsSync(canonicalDir)) {
+      throw new Error(`skill ${name} already exists without recorded source`);
+    }
+    const resolvedAgents = [...new Set([...installedAgents(projectDir, name, current), ...agents])];
+    mkdirSync(skillsDir, { recursive: true });
+    const stage = mkdtempSync(join(skillsDir, ".autoskills-"));
+    const backup = `${stage}-backup`;
+    let backedUp = false;
+    let replaced = false;
+    try {
+      for (const file of files) {
+        const dest = join(stage, ...file.path.split("/"));
+        mkdirSync(dirname(dest), { recursive: true });
+        writeFileSync(dest, file.content);
+        if (file.executable) chmodSync(dest, 0o755);
+      }
+      try { lstatSync(canonicalDir); backedUp = true; } catch {}
+      if (backedUp) renameSync(canonicalDir, backup);
+      try { renameSync(stage, canonicalDir); replaced = true; }
+      catch (error) { if (backedUp) renameSync(backup, canonicalDir); throw error; }
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
+      if (replaced) rmSync(backup, { recursive: true, force: true });
+    }
+    const errors: string[] = [];
+    for (const agent of resolvedAgents) {
+      const folder = agentFolderFor(agent);
+      if (!folder) continue;
+      try { ensureSymlinkTo(canonicalDir, join(projectDir, folder, "skills", name)); }
+      catch (error) { errors.push(`${folder}: ${(error as Error).message}`); }
+    }
+    if (errors.length) throw new Error(errors.join("\n"));
+    const lock = readSkillsLock(projectDir);
+    lock.skills[name] = { ...record, computedHash: bundleHash(files), agents: resolvedAgents };
+    lock.skills = Object.fromEntries(Object.entries(lock.skills).sort(([a], [b]) => a.localeCompare(b)));
+    writeFileSync(join(projectDir, "skills-lock.json"), JSON.stringify(lock, null, 2) + "\n");
+    opts.onTrace?.(`installed registry ${skill.registry}/${name} from ${record.source}`);
+    return { success: true, output: `installed ${name} into ${relPathFromTo(projectDir, canonicalDir)}`, stderr: "", exitCode: 0, command };
+  } catch (error) {
+    const message = (error as Error).message;
+    return { success: false, output: message, stderr: message, exitCode: 1, command };
+  }
+}
+
 // ── Batch install (concurrent + spinner) ─────────────────────
+
+function installEntry(entry: SkillEntry, agents: string[], opts: InstallOptions): Promise<InstallResult> {
+  return entry.registrySkill
+    ? installRegistrySkill(entry.registrySkill, agents, opts)
+    : installSkill(entry.skill, agents, opts);
+}
 
 function sortByRepo(skills: SkillEntry[]): SkillEntry[] {
   return [...skills].sort((a, b) => {
-    const repoA = parseSkillPath(a.skill).repo;
-    const repoB = parseSkillPath(b.skill).repo;
+    const repoA = a.registrySkill?.registry ?? parseSkillPath(a.skill).repo;
+    const repoB = b.registrySkill?.registry ?? parseSkillPath(b.skill).repo;
     return repoA.localeCompare(repoB);
   });
 }
@@ -366,9 +480,10 @@ export async function installAll(
   const sorted = sortByRepo(skills);
   const total = sorted.length;
 
-  const states = sorted.map(({ skill }) => ({
-    name: skill,
-    skill,
+  const states = sorted.map((entry) => ({
+    entry,
+    skill: entry.skill,
+    name: entry.skill,
     status: "pending" as "pending" | "installing" | "success" | "failed",
     output: "",
   }));
@@ -423,7 +538,7 @@ export async function installAll(
       activeCount++;
       render();
 
-      const result = await installSkill(state.skill, agents, opts);
+      const result = await installEntry(state.entry, agents, opts);
 
       activeCount--;
       if (result.success) {
@@ -467,9 +582,10 @@ async function installAllVerbose(
   const errors: InstallAllResult["errors"] = [];
   const securityChecks: InstallSecurityCheck[] = [];
 
-  for (const { skill } of sorted) {
+  for (const entry of sorted) {
+    const { skill } = entry;
     log(cyan(`   ◆ ${skill}`));
-    const result = await installSkill(skill, agents, {
+    const result = await installEntry(entry, agents, {
       ...opts,
       onTrace: (message) => log(dim(`     ${message}`)),
     });
@@ -511,8 +627,9 @@ async function installAllSimple(
   async function worker(): Promise<void> {
     while (nextIdx < sorted.length) {
       const idx = nextIdx++;
-      const { skill } = sorted[idx];
-      const result = await installSkill(skill, agents, opts);
+      const entry = sorted[idx];
+      const { skill } = entry;
+      const result = await installEntry(entry, agents, opts);
 
       if (result.success) {
         log(green(`   ✔ ${skill}`));

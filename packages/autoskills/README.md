@@ -69,6 +69,44 @@ npx autoskills update -y
 
 The update command checks the upstream contents of skills recorded in `skills-lock.json`, lets you select outdated skills, and refreshes their existing agent drawers. Unrelated repository commits do not count as skill updates. The first update of an old registry installation migrates it to upstream tracking. Updates replace installed content and remove files deleted upstream.
 
+### Use your own skill registries
+
+A registry adds skills from a folder on your computer or a GitHub repository. For a local folder, put each skill in its own immediate subdirectory with a `SKILL.md` file:
+
+```text
+~/my-skills/
+  review/SKILL.md
+  deploy/SKILL.md
+```
+
+Run these commands from a project root:
+
+```bash
+npx autoskills registry add personal ~/my-skills
+npx autoskills registry list
+npx autoskills --dry-run
+```
+
+The project stores this choice in `autoskills.json`. Add `--global` to `registry add`, `list`, or `remove` to use your user config at `${XDG_CONFIG_HOME:-~/.config}/autoskills/config.json`. Project entries override user entries with the same name. Built-in recommendations stay enabled.
+
+For mapped recommendations, add a `catalog.json` to the registry folder. This example recommends `review` for React projects and `deploy` for every project:
+
+```json
+{
+  "version": 1,
+  "skills": [
+    { "id": "review", "description": "Review React changes", "path": "review", "technologies": ["react"] },
+    { "id": "deploy", "description": "Deployment checklist", "path": "deploy", "always": true }
+  ]
+}
+```
+
+Skills without a matching technology or `always: true` are available for explicit selection in the CLI and desk. `-y` installs only recommended skills. Local registry discovery and installation work offline.
+
+To use a GitHub registry, commit `catalog.json` and the referenced skill directories to an `owner/repo` repository, then run `npx autoskills registry add team owner/repo`. Use `--path nested/catalog.json` when the manifest is elsewhere. `registry refresh [name]` validates the latest manifest, and `registry remove <name>` removes the project entry; both support `--global`. Set `GITHUB_TOKEN` or `GH_TOKEN` for private repositories or higher GitHub API limits. [Catalog fields and examples](docs/catalog.md) describe the full format.
+
+Local installs record absolute source paths in `skills-lock.json`. Those paths are specific to the machine; if you move the project, updates need the original folder at the recorded path. Removing or changing registry configuration does not redirect an installed skill's update source.
+
 ### Pi agent
 
 ```bash
@@ -278,11 +316,13 @@ When multiple technologies are found together, the following **33 combinations**
 
 ## How It Works
 
-Skills are markdown files that teach AI assistants how to work with specific technologies. `autoskills` uses its curated technology map to select skills, then downloads them and their supporting files directly from their upstream GitHub repositories. Each installation resolves the latest default-branch commit, verifies downloaded bytes against the commit's Git blob hashes, and records upstream provenance and content hashes in `skills-lock.json`.
+The [user skill catalog format](docs/catalog.md) defines versioned manifests for local and GitHub skill registries. It is separate from the bundled review index.
+
+Skills are markdown files that teach AI assistants how to work with specific technologies. `autoskills` uses its curated technology map and configured catalogs to select skills. GitHub installations verify downloaded bytes against Git blob hashes; local installations copy files from the recorded folder. Both record source provenance and content hashes in `skills-lock.json`.
 
 Installation does not use the locally synced registry or download from an autoskills mirror. The former registry's reviews do not apply to live upstream content. Set `GITHUB_TOKEN` or `GH_TOKEN` for private repositories or higher API limits.
 
-The detection runs entirely locally with zero network requests until installation begins.
+Technology detection runs locally. A configured GitHub registry is checked against GitHub while loading its catalog; local registries use no network.
 
 ## Requirements
 

@@ -8,7 +8,7 @@ import type { AddressInfo } from "node:net";
 import { createDeskServer } from "../desk.ts";
 import { skillIdForPath } from "../inventory.ts";
 import { sourceFixture } from "./source-helpers.ts";
-import { useTmpDir, writeFile } from "./helpers.ts";
+import { useTmpDir, writeFile, writeJson } from "./helpers.ts";
 
 function listen(server: ReturnType<typeof createDeskServer>): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -74,6 +74,32 @@ describe("desk server", () => {
         }),
     };
   }
+
+  it("shows registry recommendations and manual skills and installs a local selection", async () => {
+    const project = join(tmp.path, "project");
+    const home = join(tmp.path, "home");
+    writeJson(project, "autoskills.json", { version: 1, registries: { personal: { directory: "../skills" } } });
+    writeFile(project, "package.json", JSON.stringify({ dependencies: { react: "19" } }));
+    writeFile(tmp.path, "skills/mapped/SKILL.md", "# Mapped");
+    writeFile(tmp.path, "skills/manual/SKILL.md", "# Manual");
+    writeJson(tmp.path, "skills/catalog.json", { version: 1, skills: [
+      { id: "mapped", description: "Mapped", path: "mapped", technologies: ["react"] },
+      { id: "manual", description: "Manual", path: "manual" },
+    ] });
+    const desk = await startDesk(project, home, (() => { throw new Error("network used"); }) as typeof fetch);
+    try {
+      const snap = await httpJson(`${desk.url}/api/snapshot`);
+      equal(snap.status, 200);
+      const data = JSON.parse(snap.body);
+      ok(data.recommended.some((item: { skill: string }) => item.skill === "registry:personal/mapped"));
+      ok(data.recommended.some((item: { sources: string[] }) => item.sources.includes("React")));
+      equal(data.selectable[0].skill, "registry:personal/manual");
+      const installed = await httpJson(`${desk.url}/api/install`, { method: "POST", body: { skills: ["registry:personal/manual"], agents: ["pi"] } });
+      equal(installed.status, 200);
+      equal(JSON.parse(installed.body).installed, 1);
+      ok(existsSync(join(project, ".agents/skills/manual/SKILL.md")));
+    } finally { await desk.close(); }
+  });
 
   it("serves the desk page and a snapshot of installed skills", async () => {
     const project = join(tmp.path, "project");

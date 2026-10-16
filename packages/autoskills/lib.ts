@@ -687,6 +687,7 @@ export interface SkillEntry {
   skill: string;
   sources: string[];
   installed: boolean;
+  registrySkill?: import("./registry.ts").LoadedRegistrySkill;
 }
 
 interface CollectSkillsOptions {
