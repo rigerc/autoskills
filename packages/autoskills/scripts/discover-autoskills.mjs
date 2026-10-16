@@ -803,14 +803,8 @@ async function main() {
   if(opts.interactive==='on' && (!process.stdin.isTTY || !process.stdout.isTTY)) {
     throw new Error('--interactive requires a TTY terminal; use --no-interactive in pipes and CI.');
   }
-  if(opts.interactive==='on' && (opts.output==='-' || opts.markdown==='-')) {
-    throw new Error('--interactive cannot be used with --output - or --markdown -.');
-  }
   const root=opts.repoRoot?locateRoot(opts.repoRoot):locateRoot(process.cwd())||locateRoot(dirname(fileURLToPath(import.meta.url)));
   if(!root) throw new Error('Cannot find autoskills checkout. Pass --repo-root /path/to/autoskills');
-  discoveryCache=createDiscoveryCache({enabled:opts.cache,cacheDir:opts.cacheDir,
-    ttlMinutes:opts.cacheTtlMinutes,clear:opts.clearCache,verbose:opts.verbose});
-  if(opts.verbose) console.error(`Discovery cache: ${discoveryCache.enabled ? discoveryCache.dir : 'disabled'}`);
   const pkg=pkgRoot(root);
   const map=await import(pathToFileURL(join(pkg,'skills-map.ts')).href);
   const all=map.SKILLS_MAP;
@@ -820,6 +814,22 @@ async function main() {
   }
   if(shouldConfigureDiscovery(argv,process.stdin,process.stdout))
     await configureDiscovery(opts,all,argv);
+  // Wizard edits must take effect before initializing cache and making HTTP calls.
+  if(opts.interactive==='on' && (opts.output==='-' || opts.markdown==='-')) {
+    throw new Error('Interactive review requires report files; stdout (-) is not supported.');
+  }
+  if(opts.output===opts.markdown) {
+    throw new Error('JSON and Markdown output paths must differ (including stdout)');
+  }
+  if(opts.interactive==='on') {
+    const destinations=[opts.output,opts.markdown,opts.selectionOutput,opts.selectionMarkdown]
+      .map(path=>resolve(path));
+    if(new Set(destinations).size!==destinations.length)
+      throw new Error('Report and selection output paths must be distinct');
+  }
+  discoveryCache=createDiscoveryCache({enabled:opts.cache,cacheDir:opts.cacheDir,
+    ttlMinutes:opts.cacheTtlMinutes,clear:opts.clearCache,verbose:opts.verbose});
+  if(opts.verbose) console.error(`Discovery cache: ${discoveryCache.enabled ? discoveryCache.dir : 'disabled'}`);
   const filtered=opts.tech.length?all.filter(t=>opts.tech.includes(t.id)):all;
   if(opts.tech.length && filtered.length!==new Set(opts.tech).size) {
     throw new Error(`Unknown --tech ids: ${opts.tech.filter(id=>!all.some(t=>t.id===id)).join(', ')}`);
@@ -928,7 +938,7 @@ async function main() {
     matches:final,
     errors:[...found.errors,...md.errors,...sh.errors,...candidates.flatMap(x=>x.notes.map(n=>`${x.source} ${x.skill.repository}: ${n}`))],
   };
-  if(opts.output===opts.markdown) throw new Error('JSON and Markdown output paths must differ (including stdout)');
+
   outputFile(opts.output,JSON.stringify(report,null,2));
   outputFile(opts.markdown,markdownReport(report,opts));
   console.error(`Done: ${report.stats.uniqueDirectorySkills} Skills Directory entries + ${report.stats.uniqueSkillsMdRepos} SkillsMD repos + ${report.stats.uniqueSkillsShSkills} Skills.sh entries; ${candidates.length} matched entries; ${final.length} new GitHub-verified SKILL.md paths.`);
