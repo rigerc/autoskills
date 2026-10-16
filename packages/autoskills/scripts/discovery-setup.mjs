@@ -40,10 +40,105 @@ export function applyDiscoveryIntensity(opts, intensity, argv = []) {
   return opts;
 }
 
+
+/** Parse interactive numeric settings using the same bounds as the CLI. */
+export function parseDiscoveryNumber(value, name, min, max) {
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) ||
+      Number(value) < min || Number(value) > max) {
+    throw new Error(`${name} must be an integer from ${min} to ${max}`);
+  }
+  return Number(value);
+}
+export function parseDiscoveryChoice(value, choices) {
+  const normalized = value.trim().toLowerCase();
+  if (!choices.includes(normalized)) throw new Error('Choose ' + choices.join(', '));
+  return normalized;
+}
+export function parseDiscoveryYesNo(value) {
+  if (/^(y|yes)$/i.test(value)) return true;
+  if (/^(n|no)$/i.test(value)) return false;
+  throw new Error('Choose yes or no');
+}
+
+/** Advanced settings are opt-in, grouped, and reflect current flag values. */
+async function configureAdvanced(opts, ask, output) {
+  const num = async (label, key, min, max) => {
+    opts[key] = await ask(label, String(opts[key]),
+      value => parseDiscoveryNumber(value, label, min, max));
+  };
+  const choice = async (label, key, choices) => {
+    opts[key] = await ask(label, opts[key],
+      value => parseDiscoveryChoice(value, choices));
+  };
+  const yesNo = async (label, key) => {
+    opts[key] = await ask(label, opts[key] ? 'yes' : 'no', parseDiscoveryYesNo);
+  };
+  const file = async (label, key) => {
+    opts[key] = await ask(label, opts[key], value => {
+      if (!value || /[\r\n\0]/.test(value)) throw new Error('Enter a valid file path');
+      if (key.startsWith('selection') && value === '-')
+        throw new Error('Selection exports must be files, not stdout');
+      return value;
+    });
+  };
+  for (;;) {
+    output.write('Advanced settings: quality | providers | cache | files | done\n');
+    const group = await ask('Configure group', 'done',
+      value => parseDiscoveryChoice(value, ['quality','providers','cache','files','done']));
+    if (group === 'done') break;
+    if (group === 'quality') {
+      await num('Minimum final match score', 'minScore', 0, 1000);
+      await num('GitHub repositories to verify', 'verifyLimit', 0, 10000);
+      await num('Candidates to enrich with details', 'detailsLimit', 0, 10000);
+      await num('Suggestions per technology in Markdown', 'maxPerTech', 0, 10000);
+      await num('API page size', 'limit', 1, 100);
+    } else if (group === 'providers') {
+      await num('Queries per technology', 'queriesPerTech', 0, 6);
+      if (['both','all','skillsdirectory'].includes(opts.source)) {
+        output.write('Skills Directory settings\n');
+        await choice('Sort order', 'sort', ['recent','stars','votes']);
+        await num('Directory text search budget', 'directorySearches', 0, 300);
+        await num('Pages per directory query', 'pages', 0, 20);
+        await num('Recent directory pages', 'recentPages', 0, 20);
+        await num('Pages per relevant directory category', 'categoryPages', 0, 20);
+        opts.category = await ask('Directory category (all or slug)', opts.category || 'all',
+          value => value.toLowerCase() === 'all' ? '' : value);
+      }
+      if (['both','all','skillsmd'].includes(opts.source)) {
+        output.write('SkillsMD settings\n');
+        await choice('SkillsMD filter', 'skillsmdFilter', ['all','hot','trending']);
+        await num('SkillsMD listing pages', 'skillsmdPages', 0, 30);
+        await num('SkillsMD search budget', 'skillsmdSearches', 0, 100);
+      }
+      if (['all','skillssh'].includes(opts.source)) {
+        output.write('Skills.sh settings\n');
+        await choice('Skills.sh leaderboard', 'skillsshView', ['trending','hot','all-time']);
+        await num('Skills.sh leaderboard pages', 'skillsshPages', 0, 30);
+        await num('Skills.sh search budget', 'skillsshSearches', 0, 100);
+        await yesNo('Include curated Skills.sh skills', 'skillsshCurated');
+      }
+    } else if (group === 'cache') {
+      await yesNo('Use discovery response cache', 'cache');
+      if (opts.cache) {
+        await num('Cache lifetime in minutes', 'cacheTtlMinutes', 0, 43200);
+        await file('Cache directory', 'cacheDir');
+        await yesNo('Clear existing discovery cache first', 'clearCache');
+      } else {
+        opts.clearCache = false;
+      }
+    } else if (group === 'files') {
+      await file('JSON report', 'output');
+      await file('Markdown report', 'markdown');
+      await file('Selected JSON export', 'selectionOutput');
+      await file('Selected Markdown export', 'selectionMarkdown');
+    }
+  }
+}
+
 /** Runs before any network requests or report output. */
-export async function configureDiscovery(opts, technologies, argv, input = process.stdin, output = process.stdout) {
+export async function configureDiscovery(opts, technologies, argv, input = process.stdin, output = process.stdout, makeInterface = createInterface) {
   if (!input.isTTY || !output.isTTY) throw new Error('--configure requires a TTY; use explicit flags in CI or pipes.');
-  const rl = createInterface({ input, output });
+  const rl = makeInterface({ input, output });
   const hasToken = Boolean(process.env.VERCEL_OIDC_TOKEN?.trim());
   const defaultSource = argv.includes('--source') ? opts.source : hasToken ? 'all' : 'both';
   const defaultsTech = opts.tech.length ? opts.tech.join(',') : 'all';
@@ -85,14 +180,15 @@ export async function configureDiscovery(opts, technologies, argv, input = proce
         return preset;
       });
     applyDiscoveryIntensity(opts, intensity, argv);
-    opts.interactive = await ask('Review matches interactively (yes / no)', 'yes', value => {
-      if (/^(y|yes)$/i.test(value)) return 'on';
-      if (/^(n|no)$/i.test(value)) return 'off';
-      throw new Error('Choose yes or no');
-    });
+    const advanced = await ask('Customize advanced options (yes / no)', 'no', parseDiscoveryYesNo);
+    if (advanced) await configureAdvanced(opts, ask, output);
+    const reviewDefault = opts.interactive === 'off' ? 'no' : 'yes';
+    opts.interactive = await ask('Review matches interactively (yes / no)', reviewDefault,
+      value => parseDiscoveryYesNo(value) ? 'on' : 'off');
     output.write('Selected ' + opts.source + ' | ' +
       (opts.tech.length ? opts.tech.join(', ') : 'all technologies') +
-      ' | ' + intensity + ' | GitHub checks <= ' + opts.verifyLimit + ' repositories\n\n');
+      ' | ' + intensity + ' | score >= ' + opts.minScore +
+      ' | GitHub checks <= ' + opts.verifyLimit + ' repositories\n\n');
     return opts;
   } finally {
     rl.close();

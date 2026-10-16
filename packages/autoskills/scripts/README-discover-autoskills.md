@@ -1,13 +1,13 @@
 # Discover skills from external registries
 
-This is a **maintainer-only, read-only discovery tool**. It searches [Skills Directory](https://www.skillsdirectory.com/docs/registry-api) and [SkillsMD](https://skillsmd.dev/api.html) for new skills that match AutoSkills' existing technology detection map.
+This is a **maintainer-only, read-only discovery tool**. It searches [Skills Directory](https://www.skillsdirectory.com/docs/registry-api), [SkillsMD](https://skillsmd.dev/api.html), and authenticated [Skills.sh](https://www.skills.sh/docs/api) for new skills that match AutoSkills' existing technology detection map.
 
 ## Usage
 
 From the repository root, with Node.js 22.6+:
 
 ```bash
-# Discover skills. If attached to a terminal, open the interactive review UI.
+# Discover skills. In a terminal, configure discovery, then review results.
 pnpm --dir packages/autoskills discover:skills
 
 # Require the interactive terminal review (fails clearly without a TTY).
@@ -37,12 +37,31 @@ When run **without arguments** in a terminal, discovery prompts for the options 
 pnpm --dir packages/autoskills discover:skills
 ```
 
-The wizard asks for a **source**, **technologies**, **search intensity**, and **whether to review matches interactively**. Press **Enter** to accept each default:
+The wizard asks for a **source**, **technologies**, **search intensity**, **optional advanced settings**, and **whether to review matches interactively**. Press **Enter** to accept each default:
 
 - **Source:** `both` (Skills Directory + SkillsMD) if no Vercel token is available; `all` (including Skills.sh) if `VERCEL_OIDC_TOKEN` is set. `skillssh` and `all` are unavailable without a token.
 - **Technologies:** `all` by default. Choose `gaps` to search only technologies with no registered skills, enter comma-separated technology IDs (e.g. `react,playwright`), or `?` to list valid IDs.
 - **Search intensity:** `balanced` by default (30 directory searches, 15 searches per other source, 30 unique GitHub repository checks). `quick` uses smaller budgets; `thorough` expands them.
-- **Review:** `yes` by default, opening the existing interactive result browser at the end.
+- **Advanced options:** `no` by default. Choose `yes` to access grouped settings; the wizard returns to a menu after each group so you can configure multiple groups or choose `done`.
+- **Review:** `yes` by default, opening the existing interactive result browser at the end. If you passed `--no-interactive`, it defaults to `no`.
+
+### Advanced settings
+
+Select **yes** at "Customize advanced options" to open the group menu:
+
+| Group | Configurable fields |
+| --- | --- |
+| `quality` | Minimum relevance score, GitHub repository verification budget, detail-enrichment budget, maximum Markdown suggestions per technology, API page size |
+| `providers` | Queries per technology, then only the selected providers: Skills Directory sort/search budget/page counts/category, SkillsMD filter/pages/searches, Skills.sh leaderboard view/pages/searches/curated toggle |
+| `cache` | Enable/disable discovery cache, cache TTL, cache directory, clear existing discovery cache |
+| `files` | JSON/Markdown report paths and shortlisted JSON/Markdown export paths |
+| `done` | Return to the main wizard and start discovery after confirming review mode |
+
+All prompts show the **current value**. Enter preserves that value; typing a new one overrides it. Search intensity presets remain convenient starting points, and explicit CLI search-budget flags take precedence over the preset until you edit those values in the advanced menu. Invalid numbers, choices and file names are rejected with an inline prompt to retry.
+
+For example, to focus on well-matched Skills.sh results, select `skillssh` as the source, choose `balanced`, then customize `quality` (increase the minimum match score) and `providers` (choose leaderboard ordering and enable/disable curated results). The Skills.sh option requires a configured `VERCEL_OIDC_TOKEN`.
+
+The wizard initializes the response cache **after** setup so caching changes are applied to the search. Report and selected-export paths must not conflict when interactive review is enabled.
 
 You can force the setup even when passing CLI flags:
 
@@ -118,7 +137,7 @@ The provider reads the documented `/skills`, `/skills/search`, and `/skills/cura
 
 ## Matching
 
-The script reads `packages/autoskills/skills-map.ts`, combines skill names, descriptions, tags, categories, package/config-file detection signals, repository metadata, and verification/popularity metadata, then assigns a score and explains the evidence. It merges duplicate candidates from both APIs, excludes already-listed skills and basename conflicts, and checks upstream GitHub trees for an actual `SKILL.md` before suggesting a full `owner/repository/skill` reference.
+The script reads `packages/autoskills/skills-map.ts`, combines skill names, descriptions, tags, categories, package/config-file detection signals, repository metadata, and verification/popularity metadata, then assigns a score and explains the evidence. It merges duplicate candidates across the selected providers, excludes already-listed skills and basename conflicts, and checks upstream GitHub trees for an actual `SKILL.md` before suggesting a full `owner/repository/skill` reference.
 
 API popularity or a matching tag **does not guarantee** that a skill is safe, high-quality, or applicable. Review results manually. Do not auto-add candidates to `skills-map.ts` or the curated registry. After approving a candidate, use the repository's existing `sync:skills` safety review and `validate:registry` workflow.
 
@@ -131,4 +150,4 @@ node --experimental-strip-types --disable-warning=ExperimentalWarning \
   --test packages/autoskills/tests/discover-autoskills.test.ts
 ```
 
-No API credentials are required for public registry search. Set `GITHUB_TOKEN` or `GH_TOKEN` if GitHub API rate limits become restrictive.
+Skills Directory and SkillsMD do not require API credentials. Skills.sh requires `VERCEL_OIDC_TOKEN` (see above). Set `GITHUB_TOKEN` or `GH_TOKEN` if GitHub API rate limits become restrictive.
