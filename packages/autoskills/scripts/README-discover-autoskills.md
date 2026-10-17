@@ -29,6 +29,64 @@ node --experimental-strip-types packages/autoskills/scripts/discover-autoskills.
 
 Run `--help` to see all discovery, pagination, threshold, API URL, and output options. The default reports are `skills-discovery.json` and `skills-discovery.md` in your working directory.
 
+## Jev-reviewed discovery (OpenCode Zen)
+
+The opt-in `discover:skills:jev` command runs the normal deterministic
+Skills Directory/SkillsMD/Skills.sh discovery and GitHub `SKILL.md`
+verification, **then** submits compact verified skill profiles and each
+suggested technology to **Jev 1.13 Free**, via OpenCode Zen's
+[System One API](https://docs.opencode.ai/docs/zen/).
+It creates separate JSON and Markdown reports without editing the technology
+map, installing any skill, or skipping the usual security review.
+
+```sh
+export OPENCODE_API_KEY='your-open-code-zen-api-key'
+pnpm --dir packages/autoskills discover:skills:jev --source both --tech react,docker \
+  --verify-limit 25 --no-interactive
+# Re-evaluate a previously saved deterministic discovery report without new source requests:
+pnpm --dir packages/autoskills discover:skills:jev --input skills-discovery.json
+```
+
+`OPENCODE_ZEN_API_KEY` is also accepted. Keys are supplied only through
+environment variables, never CLI args or generated reports. Requests go to
+`https://opencode.ai/zen/v1/systemone` (or a local System One test server).
+**This is the OpenCode Zen API, not the OpenCode Go API.** The
+`jev-1.13-free` model is described as a *limited-time* free option;
+check your account's eligibility, quota, and model availability. The paid
+`jev-1.13` model must be explicitly selected.
+
+The new command supports all normal non-interactive discovery source,
+filtering, and cache flags, plus:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--input FILE` | none | Use existing discovery JSON, avoiding a second external search |
+| `--jev-model` | `jev-1.13-free` | Choose the Jev model; `jev-1.13` is paid |
+| `--jev-threshold` | `0.8` | YES score to label a match `likely_relevant` |
+| `--jev-limit` | `25` | Number of verified skills to evaluate; remaining are explicitly unscored |
+| `--jev-batch-size` | `8` | Number of technology questions per request (max 20) |
+| `--output` | `skills-discovery-jev.json` | Destination for annotated JSON |
+| `--markdown` | `skills-discovery-jev.md` | Destination for human review |
+| `--jev-url` | OpenCode Zen endpoint | Local `/v1/systemone` URL allowed for integration tests |
+
+The Jev report retains the deterministic relevance score, reasons, GitHub
+blob SHA, provenance, and complete list of verified candidates. It appends a
+Jev YES probability and a status of `likely_relevant`,
+`needs_review`, `unlikely_relevant`, or `not_evaluated`.
+A reported model truncation is always flagged for review. The primary
+discovery workflow still determines eligibility; Jev supplies another
+**advisory signal**, not a replacement for GitHub verification, license
+checks, security review, or maintainer approval.
+
+**Write and failure safety:** neither command writes to `skills-map.ts`
+or installs skills. API errors, missing credentials, malformed responses,
+or unresolved GitHub provenance stop the new command rather than treating
+unscored suggestions as approved. The free route may have stringent quotas,
+so the default evaluates at most 25 verified candidates and sends questions
+in small groups. Errors and keys are never copied into the report.
+`--interactive` is not supported in Jev mode; inspect the generated
+Markdown instead. The original interactive command is unchanged.
+
 ## Interactive discovery setup (TTY)
 
 When run **without arguments** in a terminal, discovery prompts for the options rather than immediately launching a large search:
