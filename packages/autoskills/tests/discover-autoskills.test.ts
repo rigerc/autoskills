@@ -81,6 +81,9 @@ let out='',err='';child.stdout.on('data',x=>out+=x);child.stderr.on('data',x=>er
 const code=await new Promise(ok=>child.on('exit',ok));
 if(code===0) {
  const r=JSON.parse(readFileSync(join(root,'out.json'),'utf8'));
+ if(!r.matches.every(x=>x.skillProfile && typeof x.skillProfile.description==='string' &&
+   Array.isArray(x.skillProfile.tags) && typeof x.skillProfile.intro==='string'))
+   throw new Error('Verified suggestions must carry a bounded SKILL.md profile for Jev');
  if(!r.matches.some(x=>x.skillPath==='neworg/playwright-skills/playwright')) throw new Error('Missing SkillsMD skill');
  if(r.matches.some(x=>x.skillPath==='multi-tech/toolkit/marketing')) throw new Error('Irrelevant multi-skill entry');
  if(r.matches.some(x=>x.skillPath==='vercel-labs/agent-skills/react-best-practices')) throw new Error('Already registered skill');
