@@ -150,8 +150,9 @@ async function main() {
   const args=parseArgs(process.argv.slice(2));
   if(!args)return;
   // Validate credentials/model/destination before discovery makes network requests.
-  const cfg=jevConfig({endpoint:args.endpoint,model:args.model,threshold:args.threshold,
-    questionBatch:args.questionBatch,maxEvaluations:args.maxEvaluations});
+  const options={endpoint:args.endpoint,model:args.model,threshold:args.threshold,
+    questionBatch:args.questionBatch,maxEvaluations:args.maxEvaluations};
+  jevConfig(options);
   let dirTmp;
   try {
     let report;
@@ -163,7 +164,7 @@ async function main() {
       await runDiscovery(args.forwarded,json,join(dirTmp,'discovery.md'));
       report=JSON.parse(await readFile(json,'utf8'));
     }
-    const updated=await evaluateVerifiedSuggestions(report,cfg);
+    const updated=await evaluateVerifiedSuggestions(report,options);
     // Do not leave a misleading partial report on Jev failure.
     await outputFile(args.output,JSON.stringify(updated,null,2));
     await outputFile(args.markdown,markdownReport(updated));

@@ -154,12 +154,18 @@ export async function evaluateVerifiedSuggestions(report, rawConfig = {}, fetchI
         const status=partial ? 'needs_review' :
           value>=config.threshold ? 'likely_relevant' :
           value<=0.25 ? 'unlikely_relevant' : 'needs_review';
-        if(status==='likely_relevant') relevant++;
-        else if(status==='unlikely_relevant') unlikely++;
-        else review++;
         resultMatches.push({...match,jev:{probability:value,status,model:config.model,
           truncated:partial}});
       });
+    }
+    // A truncated group invalidates auto-relevance conclusions for this skill.
+    if (truncated) {
+      for (const match of resultMatches) match.jev.status='needs_review';
+    }
+    for (const match of resultMatches) {
+      if (match.jev.status==='likely_relevant') relevant++;
+      else if (match.jev.status==='unlikely_relevant') unlikely++;
+      else review++;
     }
     scored.push({...item,matches:resultMatches,
       jev:{status:truncated?'needs_review':'evaluated',evaluatedTechnologies:resultMatches.length,
