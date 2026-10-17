@@ -524,6 +524,12 @@ async function verify(entries,opts,existing) {
         const evidence=items.map(item=>({
           source:item.source,skill:item.skill,notes:item.notes,skillPath:path,
           skillName,directoryPath:directory,githubUrl,skillBlobSha:tree.blobs.get(directory),matches,score:matches[0].score,
+          skillProfile:{
+            name:parsed.name,
+            description:parsed.description,
+            tags:parsed.tags,
+            intro:parsed.body.replace(/\x60{3}[\s\S]*?\x60{3}/g,' ').replace(/\s+/g,' ').trim().slice(0,550),
+          },
           confidence:'GitHub SKILL.md blob and frontmatter verified',
         }));
         if(prev) {
@@ -917,6 +923,7 @@ async function main() {
       skillPath:item.skillPath,skillName:item.skillName,directoryPath:item.directoryPath,
       githubUrl:item.githubUrl,skillBlobSha:item.skillBlobSha,
       confidence:item.confidence,sources:unique(item.sources),
+      skillProfile:item.skillProfile,
       score:item.score,matches:item.matches,directory,skillsmd,skillssh,
       notes:unique(item.evidence.flatMap(e=>e.notes)),
     };

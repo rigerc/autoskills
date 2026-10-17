@@ -44,7 +44,8 @@
     "discover:skills": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs",
     "discover:skills:interactive": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs --interactive",
     "discover:skills:batch": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs --no-interactive",
-    "discover:skills:quality": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs --source both --sort stars --queries-per-tech 4 --pages 2 --recent-pages 2 --category-pages 2 --directory-searches 100 --skillsmd-pages 5 --skillsmd-searches 60 --details-limit 100 --verify-limit 120 --min-score 55 --max-per-tech 3 --cache --cache-ttl-minutes 360 --interactive"
+    "discover:skills:quality": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs --source both --sort stars --queries-per-tech 4 --pages 2 --recent-pages 2 --category-pages 2 --directory-searches 100 --skillsmd-pages 5 --skillsmd-searches 60 --details-limit 100 --verify-limit 120 --min-score 55 --max-per-tech 3 --cache --cache-ttl-minutes 360 --interactive",
+    "discover:skills:jev": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills-jev.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "0.133.0",
