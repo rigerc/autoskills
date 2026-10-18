@@ -1778,6 +1778,323 @@ export const SKILLS_MAP: Technology[] = [
     },
     skills: [],
   },
+  // Additional ecosystem detections. Skills remain unmapped until vetted.
+  {
+    id: "preact",
+    name: "Preact",
+    detect: {
+      packages: ["preact"],
+    },
+    skills: [],
+  },
+  {
+    id: "lit",
+    name: "Lit",
+    detect: {
+      packages: ["lit","lit-element"],
+    },
+    skills: [],
+  },
+  {
+    id: "qwik",
+    name: "Qwik",
+    detect: {
+      packages: ["@builder.io/qwik","@builder.io/qwik-city"],
+    },
+    skills: [],
+  },
+  {
+    id: "sveltekit",
+    name: "SvelteKit",
+    detect: {
+      packages: ["@sveltejs/kit"],
+    },
+    skills: [],
+  },
+  {
+    id: "tanstack-form",
+    name: "TanStack Form",
+    detect: {
+      packages: ["@tanstack/react-form","@tanstack/vue-form","@tanstack/solid-form","@tanstack/form-core"],
+    },
+    skills: [],
+  },
+  {
+    id: "tanstack-table",
+    name: "TanStack Table",
+    detect: {
+      packages: ["@tanstack/react-table","@tanstack/vue-table","@tanstack/solid-table","@tanstack/table-core"],
+    },
+    skills: [],
+  },
+  {
+    id: "unocss",
+    name: "UnoCSS",
+    detect: {
+      packages: ["unocss","@unocss/vite"],
+      configFiles: ["uno.config.ts","uno.config.js","uno.config.mjs"],
+    },
+    skills: [],
+  },
+  {
+    id: "chakra-ui",
+    name: "Chakra UI",
+    detect: {
+      packages: ["@chakra-ui/react"],
+    },
+    skills: [],
+  },
+  {
+    id: "fastify",
+    name: "Fastify",
+    detect: {
+      packages: ["fastify"],
+    },
+    skills: [],
+  },
+  {
+    id: "adonisjs",
+    name: "AdonisJS",
+    detect: {
+      packages: ["@adonisjs/core"],
+      configFiles: ["adonisrc.ts","adonisrc.js"],
+    },
+    skills: [],
+  },
+  {
+    id: "authjs",
+    name: "Auth.js",
+    detect: {
+      packages: ["next-auth","@auth/core","@auth/sveltekit","@auth/express"],
+    },
+    skills: [],
+  },
+  {
+    id: "grpc",
+    name: "gRPC",
+    detect: {
+      packages: ["@grpc/grpc-js","@grpc/proto-loader"],
+      pythonPackages: ["grpcio","grpcio-tools"],
+    },
+    skills: [],
+  },
+  {
+    id: "deno",
+    name: "Deno",
+    detect: {
+      configFiles: ["deno.json","deno.jsonc"],
+    },
+    skills: [],
+  },
+  {
+    id: "pulumi",
+    name: "Pulumi",
+    detect: {
+      packages: ["@pulumi/pulumi"],
+      pythonPackages: ["pulumi"],
+      configFiles: ["Pulumi.yaml","Pulumi.yml"],
+    },
+    skills: [],
+  },
+  {
+    id: "sst",
+    name: "SST",
+    detect: {
+      packages: ["sst"],
+      configFiles: ["sst.config.ts","sst.config.js"],
+    },
+    skills: [],
+  },
+  {
+    id: "gitlab-ci",
+    name: "GitLab CI/CD",
+    detect: {
+      configFiles: [".gitlab-ci.yml",".gitlab-ci.yaml"],
+    },
+    skills: [],
+  },
+  {
+    id: "google-cloud",
+    name: "Google Cloud",
+    detect: {
+      pythonPackages: ["google-cloud-storage","google-cloud-bigquery","google-cloud-pubsub","google-cloud-aiplatform"],
+      packagePatterns: [/^@google-cloud\//],
+    },
+    skills: [],
+  },
+  {
+    id: "capacitor",
+    name: "Capacitor",
+    detect: {
+      packages: ["@capacitor/core","@capacitor/cli"],
+      configFiles: ["capacitor.config.ts","capacitor.config.js","capacitor.config.json"],
+    },
+    skills: [],
+  },
+  {
+    id: "postgres",
+    name: "PostgreSQL clients",
+    detect: {
+      packages: ["pg","postgres"],
+      pythonPackages: ["psycopg","psycopg2","psycopg2-binary","asyncpg","pg8000"],
+    },
+    skills: [],
+  },
+  {
+    id: "mysql",
+    name: "MySQL / MariaDB clients",
+    detect: {
+      packages: ["mysql2","mysql"],
+      pythonPackages: ["pymysql","mysql-connector-python","aiomysql"],
+    },
+    skills: [],
+  },
+  {
+    id: "duckdb",
+    name: "DuckDB",
+    detect: {
+      packages: ["duckdb","@duckdb/node-api"],
+      pythonPackages: ["duckdb"],
+    },
+    skills: [],
+  },
+  {
+    id: "polars",
+    name: "Polars",
+    detect: {
+      packages: ["nodejs-polars"],
+      pythonPackages: ["polars"],
+    },
+    skills: [],
+  },
+  {
+    id: "clickhouse",
+    name: "ClickHouse",
+    detect: {
+      packages: ["@clickhouse/client"],
+      pythonPackages: ["clickhouse-connect","clickhouse-driver"],
+    },
+    skills: [],
+  },
+  {
+    id: "qdrant",
+    name: "Qdrant",
+    detect: {
+      packages: ["@qdrant/js-client-rest"],
+      pythonPackages: ["qdrant-client"],
+    },
+    skills: [],
+  },
+  {
+    id: "bullmq",
+    name: "BullMQ",
+    detect: {
+      packages: ["bullmq"],
+    },
+    skills: [],
+  },
+  {
+    id: "temporal",
+    name: "Temporal",
+    detect: {
+      packages: ["@temporalio/client","@temporalio/worker","@temporalio/workflow"],
+      pythonPackages: ["temporalio"],
+    },
+    skills: [],
+  },
+  {
+    id: "inngest",
+    name: "Inngest",
+    detect: {
+      packages: ["inngest"],
+    },
+    skills: [],
+  },
+  {
+    id: "trigger-dev",
+    name: "Trigger.dev",
+    detect: {
+      packages: ["@trigger.dev/sdk"],
+    },
+    skills: [],
+  },
+  {
+    id: "langgraph",
+    name: "LangGraph",
+    detect: {
+      packages: ["@langchain/langgraph"],
+      pythonPackages: ["langgraph"],
+    },
+    skills: [],
+  },
+  {
+    id: "pydantic-ai",
+    name: "Pydantic AI",
+    detect: {
+      pythonPackages: ["pydantic-ai","pydantic-ai-slim"],
+    },
+    skills: [],
+  },
+  {
+    id: "openai-agents",
+    name: "OpenAI Agents SDK",
+    detect: {
+      packages: ["@openai/agents","@openai/agents-core"],
+      pythonPackages: ["openai-agents"],
+    },
+    skills: [],
+  },
+  {
+    id: "mastra",
+    name: "Mastra",
+    detect: {
+      packages: ["@mastra/core"],
+    },
+    skills: [],
+  },
+  {
+    id: "llamaindex",
+    name: "LlamaIndex",
+    detect: {
+      packages: ["llamaindex","@llamaindex/core"],
+      pythonPackages: ["llama-index","llama-index-core"],
+    },
+    skills: [],
+  },
+  {
+    id: "litellm",
+    name: "LiteLLM",
+    detect: {
+      pythonPackages: ["litellm"],
+    },
+    skills: [],
+  },
+  {
+    id: "opentelemetry",
+    name: "OpenTelemetry",
+    detect: {
+      packages: ["@opentelemetry/api","@opentelemetry/sdk-node","@opentelemetry/sdk-trace-node"],
+      pythonPackages: ["opentelemetry-api","opentelemetry-sdk"],
+    },
+    skills: [],
+  },
+  {
+    id: "langfuse",
+    name: "Langfuse",
+    detect: {
+      packages: ["langfuse","@langfuse/tracing"],
+      pythonPackages: ["langfuse"],
+    },
+    skills: [],
+  },
+  {
+    id: "msw",
+    name: "Mock Service Worker",
+    detect: {
+      packages: ["msw"],
+    },
+    skills: [],
+  },
 ];
 
 // ── Combo Skills Map (cross-technology) ──────────────────────
