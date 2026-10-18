@@ -1791,7 +1791,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "lit",
     name: "Lit",
     detect: {
-      packages: ["lit","lit-element"],
+      packages: ["lit", "lit-element"],
     },
     skills: [],
   },
@@ -1799,7 +1799,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "qwik",
     name: "Qwik",
     detect: {
-      packages: ["@builder.io/qwik","@builder.io/qwik-city"],
+      packages: ["@builder.io/qwik", "@builder.io/qwik-city"],
     },
     skills: [],
   },
@@ -1815,7 +1815,12 @@ export const SKILLS_MAP: Technology[] = [
     id: "tanstack-form",
     name: "TanStack Form",
     detect: {
-      packages: ["@tanstack/react-form","@tanstack/vue-form","@tanstack/solid-form","@tanstack/form-core"],
+      packages: [
+        "@tanstack/react-form",
+        "@tanstack/vue-form",
+        "@tanstack/solid-form",
+        "@tanstack/form-core",
+      ],
     },
     skills: [],
   },
@@ -1823,7 +1828,12 @@ export const SKILLS_MAP: Technology[] = [
     id: "tanstack-table",
     name: "TanStack Table",
     detect: {
-      packages: ["@tanstack/react-table","@tanstack/vue-table","@tanstack/solid-table","@tanstack/table-core"],
+      packages: [
+        "@tanstack/react-table",
+        "@tanstack/vue-table",
+        "@tanstack/solid-table",
+        "@tanstack/table-core",
+      ],
     },
     skills: [],
   },
@@ -1831,8 +1841,8 @@ export const SKILLS_MAP: Technology[] = [
     id: "unocss",
     name: "UnoCSS",
     detect: {
-      packages: ["unocss","@unocss/vite"],
-      configFiles: ["uno.config.ts","uno.config.js","uno.config.mjs"],
+      packages: ["unocss", "@unocss/vite"],
+      configFiles: ["uno.config.ts", "uno.config.js", "uno.config.mjs"],
     },
     skills: [],
   },
@@ -1857,7 +1867,7 @@ export const SKILLS_MAP: Technology[] = [
     name: "AdonisJS",
     detect: {
       packages: ["@adonisjs/core"],
-      configFiles: ["adonisrc.ts","adonisrc.js"],
+      configFiles: ["adonisrc.ts", "adonisrc.js"],
     },
     skills: [],
   },
@@ -1865,7 +1875,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "authjs",
     name: "Auth.js",
     detect: {
-      packages: ["next-auth","@auth/core","@auth/sveltekit","@auth/express"],
+      packages: ["next-auth", "@auth/core", "@auth/sveltekit", "@auth/express"],
     },
     skills: [],
   },
@@ -1873,8 +1883,8 @@ export const SKILLS_MAP: Technology[] = [
     id: "grpc",
     name: "gRPC",
     detect: {
-      packages: ["@grpc/grpc-js","@grpc/proto-loader"],
-      pythonPackages: ["grpcio","grpcio-tools"],
+      packages: ["@grpc/grpc-js", "@grpc/proto-loader"],
+      pythonPackages: ["grpcio", "grpcio-tools"],
     },
     skills: [],
   },
@@ -1882,7 +1892,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "deno",
     name: "Deno",
     detect: {
-      configFiles: ["deno.json","deno.jsonc"],
+      configFiles: ["deno.json", "deno.jsonc"],
     },
     skills: [],
   },
@@ -1892,7 +1902,7 @@ export const SKILLS_MAP: Technology[] = [
     detect: {
       packages: ["@pulumi/pulumi"],
       pythonPackages: ["pulumi"],
-      configFiles: ["Pulumi.yaml","Pulumi.yml"],
+      configFiles: ["Pulumi.yaml", "Pulumi.yml"],
     },
     skills: [],
   },
@@ -1901,7 +1911,7 @@ export const SKILLS_MAP: Technology[] = [
     name: "SST",
     detect: {
       packages: ["sst"],
-      configFiles: ["sst.config.ts","sst.config.js"],
+      configFiles: ["sst.config.ts", "sst.config.js"],
     },
     skills: [],
   },
@@ -1909,7 +1919,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "gitlab-ci",
     name: "GitLab CI/CD",
     detect: {
-      configFiles: [".gitlab-ci.yml",".gitlab-ci.yaml"],
+      configFiles: [".gitlab-ci.yml", ".gitlab-ci.yaml"],
     },
     skills: [],
   },
@@ -1917,7 +1927,12 @@ export const SKILLS_MAP: Technology[] = [
     id: "google-cloud",
     name: "Google Cloud",
     detect: {
-      pythonPackages: ["google-cloud-storage","google-cloud-bigquery","google-cloud-pubsub","google-cloud-aiplatform"],
+      pythonPackages: [
+        "google-cloud-storage",
+        "google-cloud-bigquery",
+        "google-cloud-pubsub",
+        "google-cloud-aiplatform",
+      ],
       packagePatterns: [/^@google-cloud\//],
     },
     skills: [],
@@ -1926,8 +1941,8 @@ export const SKILLS_MAP: Technology[] = [
     id: "capacitor",
     name: "Capacitor",
     detect: {
-      packages: ["@capacitor/core","@capacitor/cli"],
-      configFiles: ["capacitor.config.ts","capacitor.config.js","capacitor.config.json"],
+      packages: ["@capacitor/core", "@capacitor/cli"],
+      configFiles: ["capacitor.config.ts", "capacitor.config.js", "capacitor.config.json"],
     },
     skills: [],
   },
@@ -1935,8 +1950,8 @@ export const SKILLS_MAP: Technology[] = [
     id: "postgres",
     name: "PostgreSQL clients",
     detect: {
-      packages: ["pg","postgres"],
-      pythonPackages: ["psycopg","psycopg2","psycopg2-binary","asyncpg","pg8000"],
+      packages: ["pg", "postgres"],
+      pythonPackages: ["psycopg", "psycopg2", "psycopg2-binary", "asyncpg", "pg8000"],
     },
     skills: [],
   },
@@ -1944,8 +1959,8 @@ export const SKILLS_MAP: Technology[] = [
     id: "mysql",
     name: "MySQL / MariaDB clients",
     detect: {
-      packages: ["mysql2","mysql"],
-      pythonPackages: ["pymysql","mysql-connector-python","aiomysql"],
+      packages: ["mysql2", "mysql"],
+      pythonPackages: ["pymysql", "mysql-connector-python", "aiomysql"],
     },
     skills: [],
   },
@@ -1953,7 +1968,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "duckdb",
     name: "DuckDB",
     detect: {
-      packages: ["duckdb","@duckdb/node-api"],
+      packages: ["duckdb", "@duckdb/node-api"],
       pythonPackages: ["duckdb"],
     },
     skills: [],
@@ -1972,7 +1987,7 @@ export const SKILLS_MAP: Technology[] = [
     name: "ClickHouse",
     detect: {
       packages: ["@clickhouse/client"],
-      pythonPackages: ["clickhouse-connect","clickhouse-driver"],
+      pythonPackages: ["clickhouse-connect", "clickhouse-driver"],
     },
     skills: [],
   },
@@ -1997,7 +2012,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "temporal",
     name: "Temporal",
     detect: {
-      packages: ["@temporalio/client","@temporalio/worker","@temporalio/workflow"],
+      packages: ["@temporalio/client", "@temporalio/worker", "@temporalio/workflow"],
       pythonPackages: ["temporalio"],
     },
     skills: [],
@@ -2031,7 +2046,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "pydantic-ai",
     name: "Pydantic AI",
     detect: {
-      pythonPackages: ["pydantic-ai","pydantic-ai-slim"],
+      pythonPackages: ["pydantic-ai", "pydantic-ai-slim"],
     },
     skills: [],
   },
@@ -2039,7 +2054,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "openai-agents",
     name: "OpenAI Agents SDK",
     detect: {
-      packages: ["@openai/agents","@openai/agents-core"],
+      packages: ["@openai/agents", "@openai/agents-core"],
       pythonPackages: ["openai-agents"],
     },
     skills: [],
@@ -2056,8 +2071,8 @@ export const SKILLS_MAP: Technology[] = [
     id: "llamaindex",
     name: "LlamaIndex",
     detect: {
-      packages: ["llamaindex","@llamaindex/core"],
-      pythonPackages: ["llama-index","llama-index-core"],
+      packages: ["llamaindex", "@llamaindex/core"],
+      pythonPackages: ["llama-index", "llama-index-core"],
     },
     skills: [],
   },
@@ -2073,8 +2088,8 @@ export const SKILLS_MAP: Technology[] = [
     id: "opentelemetry",
     name: "OpenTelemetry",
     detect: {
-      packages: ["@opentelemetry/api","@opentelemetry/sdk-node","@opentelemetry/sdk-trace-node"],
-      pythonPackages: ["opentelemetry-api","opentelemetry-sdk"],
+      packages: ["@opentelemetry/api", "@opentelemetry/sdk-node", "@opentelemetry/sdk-trace-node"],
+      pythonPackages: ["opentelemetry-api", "opentelemetry-sdk"],
     },
     skills: [],
   },
@@ -2082,7 +2097,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "langfuse",
     name: "Langfuse",
     detect: {
-      packages: ["langfuse","@langfuse/tracing"],
+      packages: ["langfuse", "@langfuse/tracing"],
       pythonPackages: ["langfuse"],
     },
     skills: [],
