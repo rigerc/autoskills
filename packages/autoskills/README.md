@@ -178,22 +178,22 @@ Use `--no-cache` or `--clear-cache` when invoking the discovery script directly.
 
 ## Supported Technologies
 
-`autoskills` detects **151 technologies** and **33 technology combos** from `package.json`, project manifests, Gradle files, and configuration files. The following table covers every technology in `SKILLS_MAP`, including Rails, Django, FastAPI, and pytest.
+`autoskills` detects **188 technologies** and **33 technology combos** from `package.json`, project manifests, Gradle files, and configuration files. The following table covers every technology in `SKILLS_MAP`, including Rails, Django, FastAPI, and pytest.
 
 | Category | Technologies |
 | --- | --- |
-| Frontend frameworks | React, Next.js, Vue, Nuxt, Pinia, Svelte, Angular, Astro, React Router, TanStack Start, SolidJS |
-| Styling, state & UI | Tailwind CSS, shadcn/ui, React Hook Form, Zod, TanStack Query, Zustand, Redux, Storybook, GSAP, Three.js, React Three Fiber |
-| Languages & runtimes | TypeScript, Node.js, Bun, Dart, Go, Bash, Java, Rust, Ruby, PHP, Python, .NET, C#, Kotlin, Swift, Elixir, C++ |
-| Backend frameworks & APIs | Express, Hono, NestJS, Spring Boot, ASP.NET Core, Blazor, ASP.NET Minimal API, Ruby on Rails, Laravel, FastAPI, FastMCP, Django, Flask, Elysia, GraphQL, tRPC, WordPress |
-| Mobile, desktop & extensions | Expo, React Native, Flutter, Kotlin Multiplatform, Android, SwiftUI, Tauri, Electron, Chrome Extension |
-| Databases, data & ORM | Supabase, Neon Postgres, InstantDB, Prisma, Drizzle ORM, MongoDB, Firebase, Convex, Redis, Redis (Ruby), PostgreSQL, Pydantic, SQLAlchemy, Pandas, NumPy, Scikit-Learn |
+| Frontend frameworks | React, Next.js, Vue, Nuxt, Pinia, Svelte, Angular, Astro, React Router, TanStack Start, SolidJS, Preact, Lit, Qwik, SvelteKit |
+| Styling, state & UI | Tailwind CSS, shadcn/ui, React Hook Form, Zod, TanStack Query, Zustand, Redux, Storybook, GSAP, Three.js, React Three Fiber, TanStack Form, TanStack Table, UnoCSS, Chakra UI |
+| Languages & runtimes | TypeScript, Node.js, Bun, Dart, Go, Bash, Java, Rust, Ruby, PHP, Python, .NET, C#, Kotlin, Swift, Elixir, C++, Deno |
+| Backend frameworks & APIs | Express, Hono, NestJS, Spring Boot, ASP.NET Core, Blazor, ASP.NET Minimal API, Ruby on Rails, Laravel, FastAPI, FastMCP, Django, Flask, Elysia, GraphQL, tRPC, WordPress, Fastify, AdonisJS, gRPC |
+| Mobile, desktop & extensions | Expo, React Native, Flutter, Kotlin Multiplatform, Android, SwiftUI, Tauri, Electron, Chrome Extension, Capacitor |
+| Databases, data & ORM | Supabase, Neon Postgres, InstantDB, Prisma, Drizzle ORM, MongoDB, Firebase, Convex, Redis, Redis (Ruby), PostgreSQL, Pydantic, SQLAlchemy, Pandas, NumPy, Scikit-Learn, PostgreSQL clients, MySQL / MariaDB clients, DuckDB, Polars, ClickHouse, Qdrant |
 | Ruby ecosystem | Sorbet, ActiveAdmin, Devise, Sidekiq, RSpec, RuboCop |
 | Python ecosystem | Celery, Requests |
-| Cloud, CI & infrastructure | Vercel, Cloudflare, Durable Objects, Cloudflare Agents, Cloudflare AI, Terraform, AWS, Azure, Docker, Kubernetes, Helm, GitHub Actions |
-| Testing & quality | Playwright, Vitest, Jest, Cypress, ESLint, Biome, oxlint, Pytest |
-| Authentication & payments | Clerk, Better Auth, Stripe |
-| AI SDKs & observability | Vercel AI SDK, ElevenLabs, Anthropic SDK, OpenAI SDK, LangChain, Model Context Protocol SDK, Hugging Face, Sentry |
+| Cloud, CI & infrastructure | Vercel, Cloudflare, Durable Objects, Cloudflare Agents, Cloudflare AI, Terraform, AWS, Azure, Docker, Kubernetes, Helm, GitHub Actions, Pulumi, SST, GitLab CI/CD, Google Cloud |
+| Testing & quality | Playwright, Vitest, Jest, Cypress, ESLint, Biome, oxlint, Pytest, Mock Service Worker |
+| Authentication & payments | Clerk, Better Auth, Stripe, Auth.js |
+| AI SDKs & observability | Vercel AI SDK, ElevenLabs, Anthropic SDK, OpenAI SDK, LangChain, Model Context Protocol SDK, Hugging Face, Sentry, LangGraph, Pydantic AI, OpenAI Agents SDK, Mastra, LlamaIndex, LiteLLM, OpenTelemetry, Langfuse |
 | Build tooling & media | Turborepo, Vite, Remotion |
 | Developer tooling | Vite+, Just, Task, GNU Make / Make, mise, direnv, pre-commit, Lefthook, Husky, lint-staged, Changesets, semantic-release, commitlint, Renovate, Dependabot, Nx, moonrepo, Prettier, tsup, tsdown, Rolldown, esbuild, webpack, Rspack, uv, Poetry, Ruff, Bazel |
 
@@ -269,6 +269,51 @@ These additions are **detection-only** until upstream skill paths are verified a
 Python SDK matching reads declared dependencies in `requirements.txt`, `pyproject.toml` (project, optional, dependency groups and Poetry), and `Pipfile`. Package names are matched as complete names, so `other-anthropic-sdk` will not be mistaken for the Anthropic SDK. Directory detection uses project-relative existence checks.
 
 The map can detect a technology without installing a skill: **new entries without a verified, synced upstream skill have an empty `skills` list**. Redis and Swift reuse existing registered skills. New combo entries are currently detection-only until a suitable upstream skill is verified and synced.
+
+
+### Additional ecosystem detections (detection-only)
+
+The following technologies are recognized but do not automatically install new upstream skills until suitable sources have been reviewed.
+
+| Technology | Example detection signals |
+| --- | --- |
+| Preact | `preact` |
+| Lit | `lit`, `lit-element` |
+| Qwik | `@builder.io/qwik`, `@builder.io/qwik-city` |
+| SvelteKit | `@sveltejs/kit` |
+| TanStack Form | `@tanstack/react-form`, `@tanstack/vue-form` |
+| TanStack Table | `@tanstack/react-table`, `@tanstack/vue-table` |
+| UnoCSS | `unocss`, `@unocss/vite`, `uno.config.ts`, `uno.config.js` |
+| Chakra UI | `@chakra-ui/react` |
+| Fastify | `fastify` |
+| AdonisJS | `@adonisjs/core`, `adonisrc.ts`, `adonisrc.js` |
+| Auth.js | `next-auth`, `@auth/core` |
+| gRPC | `@grpc/grpc-js`, `@grpc/proto-loader`, Python `grpcio`, Python `grpcio-tools` |
+| Deno | `deno.json`, `deno.jsonc` |
+| Pulumi | `@pulumi/pulumi`, Python `pulumi`, `Pulumi.yaml`, `Pulumi.yml` |
+| SST | `sst`, `sst.config.ts`, `sst.config.js` |
+| GitLab CI/CD | `.gitlab-ci.yml`, `.gitlab-ci.yaml` |
+| Google Cloud | Python `google-cloud-storage`, Python `google-cloud-bigquery`, `@google-cloud/*` |
+| Capacitor | `@capacitor/core`, `@capacitor/cli`, `capacitor.config.ts`, `capacitor.config.js` |
+| PostgreSQL clients | `pg`, `postgres`, Python `psycopg`, Python `psycopg2` |
+| MySQL / MariaDB clients | `mysql2`, `mysql`, Python `pymysql`, Python `mysql-connector-python` |
+| DuckDB | `duckdb`, `@duckdb/node-api`, Python `duckdb` |
+| Polars | `nodejs-polars`, Python `polars` |
+| ClickHouse | `@clickhouse/client`, Python `clickhouse-connect`, Python `clickhouse-driver` |
+| Qdrant | `@qdrant/js-client-rest`, Python `qdrant-client` |
+| BullMQ | `bullmq` |
+| Temporal | `@temporalio/client`, `@temporalio/worker`, Python `temporalio` |
+| Inngest | `inngest` |
+| Trigger.dev | `@trigger.dev/sdk` |
+| LangGraph | `@langchain/langgraph`, Python `langgraph` |
+| Pydantic AI | Python `pydantic-ai`, Python `pydantic-ai-slim` |
+| OpenAI Agents SDK | `@openai/agents`, `@openai/agents-core`, Python `openai-agents` |
+| Mastra | `@mastra/core` |
+| LlamaIndex | `llamaindex`, `@llamaindex/core`, Python `llama-index`, Python `llama-index-core` |
+| LiteLLM | Python `litellm` |
+| OpenTelemetry | `@opentelemetry/api`, `@opentelemetry/sdk-node`, Python `opentelemetry-api`, Python `opentelemetry-sdk` |
+| Langfuse | `langfuse`, `@langfuse/tracing`, Python `langfuse` |
+| Mock Service Worker | `msw` |
 
 ### Web Frontend Detection
 

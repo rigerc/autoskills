@@ -74,7 +74,7 @@ Run `npx autoskills ui` to browse the skills installed in your project in a loca
 
 ## Supported Technologies
 
-Detects **151 technologies** and **33 technology combos** across frontend, backend, cloud, mobile, data, and AI stacks. Some detection-only technologies do not have synced skill sources yet.
+Detects **188 technologies** and **33 technology combos** across frontend, backend, cloud, mobile, data, and AI stacks. Some detection-only technologies do not have synced skill sources yet.
 
 - **Frontend & UI:** React, Next.js, Vue, Nuxt, Pinia, Svelte, Angular, Astro, SolidJS, Tailwind CSS, shadcn/ui, TanStack Start, TanStack Query, Zustand, Redux, Storybook, GSAP, Three.js
 - **Languages & runtimes:** TypeScript, Node.js, Go, Bun, Dart, Ruby, Python, Java, Rust, C#, .NET, PHP, Kotlin, Swift, Elixir, C++
@@ -87,6 +87,8 @@ Detects **151 technologies** and **33 technology combos** across frontend, backe
 - **AI & observability:** OpenAI SDK, Anthropic SDK, LangChain, MCP SDK, Hugging Face, Sentry, Vercel AI SDK, ElevenLabs
 - **Developer tooling:** Vite+, Just, Task, Make, mise, direnv, pre-commit, Lefthook, Husky, lint-staged, Changesets, semantic-release, commitlint, Renovate, Dependabot, Nx, moonrepo, Prettier, tsup, tsdown, Rolldown, esbuild, webpack, Rspack, uv, Poetry, Ruff, Bazel
 - **Other tooling:** Turborepo, Vite, Remotion, WordPress, Chrome extensions, and more
+
+The detection-only expansion additionally covers Fastify, Auth.js, OpenTelemetry, PostgreSQL and MySQL clients, BullMQ, Temporal, LangGraph, Pydantic AI, Pulumi, Deno, DuckDB, Polars, and other frontend, AI, cloud, and data tools.
 
 See the [package's complete technology and combo tables](./packages/autoskills/README.md#supported-technologies).
 
