@@ -532,16 +532,16 @@ plugins {
     ok(detected.some((t) => t.id === "java"));
   });
 
-  it("detects Spring Boot from application.properties", () => {
+  it("does not infer Spring Boot from application.properties", () => {
     writeFile(tmp.path, "src/main/resources/application.properties", "server.port=8080");
     const { detected } = detectTechnologies(tmp.path);
-    ok(detected.some((t) => t.id === "springboot"));
+    ok(!detected.some((t) => t.id === "springboot"));
   });
 
-  it("detects Spring Boot from application.yml", () => {
+  it("does not infer Spring Boot from application.yml", () => {
     writeFile(tmp.path, "src/main/resources/application.yml", "server:\n  port: 8080");
     const { detected } = detectTechnologies(tmp.path);
-    ok(detected.some((t) => t.id === "springboot"));
+    ok(!detected.some((t) => t.id === "springboot"));
   });
 
   it("detects Spring Boot from pom.xml with spring-boot-starter", () => {
@@ -585,7 +585,7 @@ plugins {
   });
 
   it("returns correct skills for Spring Boot detection", () => {
-    writeFile(tmp.path, "src/main/resources/application.properties", "server.port=8080");
+    writeFile(tmp.path, "build.gradle.kts", 'plugins { id("org.springframework.boot") }');
     const { detected } = detectTechnologies(tmp.path);
     const springboot = detected.find((t) => t.id === "springboot");
     ok(springboot);
@@ -724,7 +724,7 @@ plugins {
     ok(detected.some((t) => t.id === "aspnet-blazor"));
   });
 
-  it("detects Minimal API from .csproj package reference", () => {
+  it("does not infer Minimal API from an OpenAPI package reference", () => {
     writePackageJson(tmp.path);
     writeFile(
       tmp.path,
@@ -732,14 +732,14 @@ plugins {
       '<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />',
     );
     const { detected } = detectTechnologies(tmp.path);
-    ok(detected.some((t) => t.id === "aspnet-minimal-api"));
+    ok(!detected.some((t) => t.id === "aspnet-minimal-api"));
   });
 
-  it("detects ASP.NET Core from appsettings.json", () => {
+  it("does not infer ASP.NET Core from appsettings.json", () => {
     writePackageJson(tmp.path);
     writeFile(tmp.path, "appsettings.json", "{}");
     const { detected } = detectTechnologies(tmp.path);
-    ok(detected.some((t) => t.id === "aspnetcore"));
+    ok(!detected.some((t) => t.id === "aspnetcore"));
   });
 
   it("skips bin and obj directories when scanning .NET projects", () => {
@@ -1073,6 +1073,7 @@ plugins {
       "Package.swift",
       `import PackageDescription\nlet package = Package(name: "MySwiftApp", dependencies: [.package(url: "https://github.com/clerk/clerk-ios", from: "1.0.0")])`,
     );
+    writeFile(tmp.path, "Sources/App/View.swift", "import SwiftUI\nstruct ContentView: View {}\n");
     const { detected } = detectTechnologies(tmp.path);
     const ids = detected.map((t) => t.id);
     ok(ids.includes("swiftui"));
@@ -1191,6 +1192,7 @@ plugins {
       "Package.swift",
       'dependencies: [.package(url: "https://github.com/clerk/clerk-ios", from: "1.0.0")]',
     );
+    writeFile(tmp.path, "Sources/App/View.swift", "import SwiftUI\nstruct ContentView: View {}\n");
     const { detected, combos } = detectTechnologies(tmp.path);
     const ids = detected.map((t) => t.id);
     ok(ids.includes("swiftui"));

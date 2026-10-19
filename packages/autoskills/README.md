@@ -178,24 +178,28 @@ Use `--no-cache` or `--clear-cache` when invoking the discovery script directly.
 
 ## Supported Technologies
 
-`autoskills` detects **188 technologies** and **33 technology combos** from `package.json`, project manifests, Gradle files, and configuration files. The following table covers every technology in `SKILLS_MAP`, including Rails, Django, FastAPI, and pytest.
+<!-- catalog-coverage:start -->
+`autoskills` detects **226 technologies** and **33 technology combos** from `package.json`, project manifests, Gradle files, and configuration files. **87 technologies have curated skills** and the remaining **139 are detection-only** until a suitable upstream skill is verified and synced. The tables below list every technology in `SKILLS_MAP`.
+<!-- catalog-coverage:end -->
 
 | Category | Technologies |
 | --- | --- |
 | Frontend frameworks | React, Next.js, Vue, Nuxt, Pinia, Svelte, Angular, Astro, React Router, TanStack Start, SolidJS, Preact, Lit, Qwik, SvelteKit |
-| Styling, state & UI | Tailwind CSS, shadcn/ui, React Hook Form, Zod, TanStack Query, Zustand, Redux, Storybook, GSAP, Three.js, React Three Fiber, TanStack Form, TanStack Table, UnoCSS, Chakra UI |
-| Languages & runtimes | TypeScript, Node.js, Bun, Dart, Go, Bash, Java, Rust, Ruby, PHP, Python, .NET, C#, Kotlin, Swift, Elixir, C++, Deno |
-| Backend frameworks & APIs | Express, Hono, NestJS, Spring Boot, ASP.NET Core, Blazor, ASP.NET Minimal API, Ruby on Rails, Laravel, FastAPI, FastMCP, Django, Flask, Elysia, GraphQL, tRPC, WordPress, Fastify, AdonisJS, gRPC |
+| Styling, state & UI | Tailwind CSS, shadcn/ui, React Hook Form, Zod, TanStack Query, Zustand, Redux, Storybook, GSAP, Three.js, React Three Fiber, TanStack Form, TanStack Table, UnoCSS, Chakra UI, Radix UI, Recharts, D3 |
+| Languages & runtimes | TypeScript, Node.js, Bun, Dart, Go, Bash, Java, Rust, Ruby, PHP, Python, .NET, C#, Kotlin, Swift, Elixir, C++, Deno, Nix, Lua, Haskell, QML, Vala, PowerShell, Fish, Zsh, Windows batch, SuperCollider |
+| Editors, content & terminal UI | CodeMirror, Monaco Editor, Ink, remark / rehype / unified |
+| Backend frameworks & APIs | Express, Hono, NestJS, Spring Boot, ASP.NET Core, Blazor, ASP.NET Minimal API, Ruby on Rails, Laravel, FastAPI, FastMCP, Django, Flask, Elysia, GraphQL, tRPC, WordPress, Fastify, AdonisJS, gRPC, Symfony, Phoenix, Gin, Axum |
 | Mobile, desktop & extensions | Expo, React Native, Flutter, Kotlin Multiplatform, Android, SwiftUI, Tauri, Electron, Chrome Extension, Capacitor |
-| Databases, data & ORM | Supabase, Neon Postgres, InstantDB, Prisma, Drizzle ORM, MongoDB, Firebase, Convex, Redis, Redis (Ruby), PostgreSQL, Pydantic, SQLAlchemy, Pandas, NumPy, Scikit-Learn, PostgreSQL clients, MySQL / MariaDB clients, DuckDB, Polars, ClickHouse, Qdrant |
+| Databases, data & ORM | Supabase, Neon Postgres, InstantDB, Prisma, Drizzle ORM, MongoDB, Firebase, Convex, Redis, Redis (Ruby), PostgreSQL (JS/Python), PostgreSQL (Ruby), SQLite, Pydantic, SQLAlchemy, Pandas, NumPy, Scikit-Learn, MySQL / MariaDB clients, DuckDB, Polars, ClickHouse, Qdrant |
 | Ruby ecosystem | Sorbet, ActiveAdmin, Devise, Sidekiq, RSpec, RuboCop |
-| Python ecosystem | Celery, Requests |
+| Python ecosystem | Celery, Requests, Jinja |
 | Cloud, CI & infrastructure | Vercel, Cloudflare, Durable Objects, Cloudflare Agents, Cloudflare AI, Terraform, AWS, Azure, Docker, Kubernetes, Helm, GitHub Actions, Pulumi, SST, GitLab CI/CD, Google Cloud |
-| Testing & quality | Playwright, Vitest, Jest, Cypress, ESLint, Biome, oxlint, Pytest, Mock Service Worker |
-| Authentication & payments | Clerk, Better Auth, Stripe, Auth.js |
-| AI SDKs & observability | Vercel AI SDK, ElevenLabs, Anthropic SDK, OpenAI SDK, LangChain, Model Context Protocol SDK, Hugging Face, Sentry, LangGraph, Pydantic AI, OpenAI Agents SDK, Mastra, LlamaIndex, LiteLLM, OpenTelemetry, Langfuse |
-| Build tooling & media | Turborepo, Vite, Remotion |
-| Developer tooling | Vite+, Just, Task, GNU Make / Make, mise, direnv, pre-commit, Lefthook, Husky, lint-staged, Changesets, semantic-release, commitlint, Renovate, Dependabot, Nx, moonrepo, Prettier, tsup, tsdown, Rolldown, esbuild, webpack, Rspack, uv, Poetry, Ruff, Bazel |
+| Platforms & integrations | Obsidian, Userscripts, Home Assistant |
+| Testing & quality | Playwright, Vitest, Jest, Cypress, ESLint, Biome, oxlint, Pytest, Mock Service Worker, AVA, XO, Knip |
+| Authentication & payments | Clerk, Better Auth, Stripe, Auth.js, WorkOS |
+| AI SDKs & observability | Vercel AI SDK, ElevenLabs, Anthropic SDK, OpenAI SDK, LangChain, Model Context Protocol SDK, Hugging Face, Sentry, LangGraph, Pydantic AI, OpenAI Agents SDK, Mastra, LlamaIndex, LiteLLM, OpenTelemetry, Langfuse, Google Gen AI, Firecrawl |
+| Build tooling & media | Turborepo, Vite, Remotion, Rollup, Babel, CMake, Meson |
+| Developer tooling | Vite+, Just, Task, GNU Make / Make, mise, direnv, pre-commit, Lefthook, Husky, lint-staged, Changesets, semantic-release, commitlint, Renovate, Dependabot, Nx, moonrepo, Prettier, tsup, tsdown, Rolldown, esbuild, webpack, Rspack, uv, Poetry, Ruff, Bazel, nodemon, TypeDoc |
 
 ### Expanded detection signals
 
@@ -227,9 +231,10 @@ Use `--no-cache` or `--clear-cache` when invoking the discovery script directly.
 | Hugging Face | `@huggingface/inference`, `@huggingface/hub`; Python `huggingface-hub`, `transformers` |
 | Sentry | `@sentry/*`; Python `sentry-sdk` |
 | Kotlin | Kotlin Gradle plugin declaration (root or recognized module Gradle files) |
-| Swift | `Package.swift` |
+| Swift | `Package.swift` or `.swift` files (Swift language only; SwiftUI requires a real `import SwiftUI`) |
 | Elixir | `mix.exs` |
-| C++ | `CMakeLists.txt` |
+| C++ | C++ source and header extensions (`.cpp`, `.cxx`, `.cc`, `.hpp`, `.hxx`, `.hh`), independent of the build system |
+| CMake | `CMakeLists.txt`, `CMakePresets.json` |
 
 ### Developer tooling detection signals
 
@@ -314,6 +319,51 @@ The following technologies are recognized but do not automatically install new u
 | OpenTelemetry | `@opentelemetry/api`, `@opentelemetry/sdk-node`, Python `opentelemetry-api`, Python `opentelemetry-sdk` |
 | Langfuse | `langfuse`, `@langfuse/tracing`, Python `langfuse` |
 | Mock Service Worker | `msw` |
+
+### Platform, tooling and content detections (detection-only)
+
+The following technologies are also recognized but do not install upstream skills until suitable sources have been reviewed. Package names are matched exactly, and file extensions are read from a bounded, symlink-free scan.
+
+| Technology | Example detection signals |
+| --- | --- |
+| Ink | `ink`, `ink-select-input`, `@inkjs/ui` |
+| Radix UI | `radix-ui`, `@radix-ui/react-*` primitives |
+| Recharts | `recharts` |
+| D3 | `d3`, `d3-scale` and other `d3-*` modules |
+| CodeMirror | `codemirror`, `@codemirror/*` |
+| Monaco Editor | `monaco-editor`, `@monaco-editor/react` |
+| remark / rehype / unified | `remark`, `rehype`, `unified`, `remark-*`, `rehype-*`, `mdast-*`, `unist-*` packages |
+| WorkOS | `@workos-inc/*`; Python `workos` |
+| SQLite | `better-sqlite3`, `sqlite3`, `sqlite`, `@libsql/client`; Python `aiosqlite`, `libsql-experimental` |
+| Google Gen AI | `@google/genai`; Python `google-genai` |
+| Firecrawl | `@mendable/firecrawl-js`; Python `firecrawl-py` |
+| AVA | `ava` or `ava.config.*` |
+| XO | `xo` or `xo.config.*` |
+| Rollup | `rollup`, `@rollup/plugin-*`, `rollup-plugin-*`, or `rollup.config.*` |
+| Babel | `@babel/core`, `babel-jest`, `babel-plugin-*`, or Babel config files |
+| nodemon | `nodemon` or `nodemon.json` |
+| Knip | `knip`, `knip.json*`, or `knip.config.*` |
+| TypeDoc | `typedoc`, `typedoc.json*`, or `typedoc.config.*` |
+| CMake | `CMakeLists.txt`, `CMakePresets.json` |
+| Meson | `meson.build`, `meson_options.txt`, `meson.options` |
+| Nix | `.nix` files |
+| QML | `qmldir` or `.qml` files |
+| Vala | `.vala`, `.vapi` files |
+| SuperCollider | `.scd` files |
+| Lua | `.lua` files |
+| Haskell | `.hs`, `.lhs`, `.cabal`, `cabal.project`, `stack.yaml` |
+| PowerShell | `.ps1`, `.psm1`, `.psd1` files |
+| Fish | `.fish` files or `.config/fish/config.fish` |
+| Zsh | `.zsh` files or `.zshrc` / `.zshenv` |
+| Windows batch | `.bat`, `.cmd` files |
+| Jinja | Python `jinja2`, or `.jinja`, `.jinja2`, `.j2` templates |
+| Symfony | Composer `symfony/framework-bundle` or `symfony/symfony` |
+| Phoenix | Mix dependency `phoenix` |
+| Gin | Go module `github.com/gin-gonic/gin` |
+| Axum | Cargo crate `axum` |
+| Obsidian | `obsidian` or `obsidian-plugin-cli` with a plugin `manifest.json` |
+| Userscripts | `.user.js` files or `vite-plugin-monkey` |
+| Home Assistant | Python `homeassistant` or an add-on `config.yaml` declaring supervisor APIs |
 
 ### Web Frontend Detection
 

@@ -41,6 +41,8 @@
     "prepublishOnly": "pnpm run validate:registry",
     "release": "node scripts/release.mjs",
     "sync:skills": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/sync-skills.mjs",
+    "catalog:report": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/catalog-report.mjs",
+    "catalog:report:check": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/catalog-report.mjs --check",
     "discover:skills": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs",
     "discover:skills:interactive": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs --interactive",
     "discover:skills:batch": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/discover-autoskills.mjs --no-interactive",

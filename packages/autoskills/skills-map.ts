@@ -2,14 +2,22 @@
 
 export interface ConfigFileContentBlock {
   files?: string[];
-  patterns: string[];
+  patterns: (string | RegExp)[];
   scanGradleLayout?: boolean;
   scanDotNetLayout?: boolean;
+  sourceExtensions?: string[];
+  allPatterns?: boolean;
+  stripComments?: "code" | "hash" | "xml";
+  maskStrings?: boolean;
 }
 
 export interface DetectConfig {
   packages?: string[];
   pythonPackages?: string[];
+  composerPackages?: string[];
+  goModules?: string[];
+  rustCrates?: string[];
+  elixirPackages?: string[];
   packagePatterns?: RegExp[];
   configFiles?: string[];
   fileExtensions?: string[];
@@ -167,6 +175,7 @@ export const SKILLS_MAP: Technology[] = [
     name: "Supabase",
     detect: {
       packages: ["@supabase/supabase-js", "@supabase/ssr"],
+      pythonPackages: ["supabase"],
     },
     skills: ["supabase/agent-skills/supabase-postgres-best-practices"],
   },
@@ -307,7 +316,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "react-router",
     name: "React Router",
     detect: {
-      packages: ["react-router", "@react-router/node", "@react-router/dev", "@react-router/serve"],
+      packages: ["react-router", "react-router-dom", "@react-router/node", "@react-router/dev", "@react-router/serve"],
     },
     skills: [],
   },
@@ -407,6 +416,7 @@ export const SKILLS_MAP: Technology[] = [
     name: "Azure",
     detect: {
       packagePatterns: [/^@azure\//],
+      pythonPackages: ["azure-identity", "azure-storage-blob", "azure-cosmos", "azure-ai-inference"],
     },
     skills: [
       "microsoft/github-copilot-for-azure/azure-deploy",
@@ -426,7 +436,8 @@ export const SKILLS_MAP: Technology[] = [
     id: "elevenlabs",
     name: "ElevenLabs",
     detect: {
-      packages: ["elevenlabs"],
+      packages: ["elevenlabs", "@elevenlabs/elevenlabs-js"],
+      pythonPackages: ["elevenlabs"],
     },
     skills: ["inferen-sh/skills/elevenlabs-tts", "inferen-sh/skills/elevenlabs-music"],
   },
@@ -508,7 +519,10 @@ export const SKILLS_MAP: Technology[] = [
     id: "aws",
     name: "AWS",
     detect: {
-      packagePatterns: [/^@aws-sdk\//, /^aws-cdk/],
+      packages: ["aws-sdk", "aws-cdk", "aws-cdk-lib"],
+      packagePatterns: [/^@aws-sdk\//, /^@aws-cdk\//],
+      pythonPackages: ["boto3", "botocore", "aws-cdk-lib"],
+      gems: ["aws-sdk", "aws-sdk-s3"],
     },
     skills: [],
   },
@@ -516,7 +530,12 @@ export const SKILLS_MAP: Technology[] = [
     id: "swiftui",
     name: "SwiftUI",
     detect: {
-      configFiles: ["Package.swift", "Podfile"],
+      configFileContent: {
+        sourceExtensions: [".swift"],
+        patterns: [/^\s*import\s+SwiftUI\b/m],
+        stripComments: "code",
+        maskStrings: true,
+      },
     },
     skills: [
       "avdlee/swiftui-agent-skill/swiftui-expert-skill",
@@ -681,15 +700,18 @@ export const SKILLS_MAP: Technology[] = [
     id: "springboot",
     name: "Spring Boot",
     detect: {
-      configFiles: [
-        "src/main/resources/application.properties",
-        "src/main/resources/application.yml",
-        "src/main/resources/application.yaml",
+      configFileContent: [
+        {
+          files: ["pom.xml"],
+          patterns: [/<groupId>\s*org\.springframework\.boot\s*<\/groupId>/],
+          stripComments: "xml",
+        },
+        {
+          scanGradleLayout: true,
+          patterns: [/["']org\.springframework\.boot(?:["']|:)/],
+          stripComments: "code",
+        },
       ],
-      configFileContent: {
-        files: ["pom.xml"],
-        patterns: ["spring-boot-starter", "org.springframework.boot"],
-      },
     },
     skills: ["github/awesome-copilot/java-springboot"],
   },
@@ -711,6 +733,9 @@ export const SKILLS_MAP: Technology[] = [
     name: "Stripe",
     detect: {
       packages: ["stripe", "@stripe/stripe-js", "@stripe/react-stripe-js"],
+      pythonPackages: ["stripe"],
+      gems: ["stripe"],
+      composerPackages: ["stripe/stripe-php"],
     },
     skills: ["stripe/ai/stripe-best-practices", "stripe/ai/upgrade-stripe"],
   },
@@ -801,12 +826,7 @@ export const SKILLS_MAP: Technology[] = [
   {
     id: "csharp",
     name: "C#",
-    detect: {
-      configFileContent: {
-        scanDotNetLayout: true,
-        patterns: ["<Project", "Microsoft.NET.Sdk"],
-      },
-    },
+    detect: { fileExtensions: [".csproj", ".cs"] },
     skills: [
       "github/awesome-copilot/csharp-xunit",
       "github/awesome-copilot/csharp-async",
@@ -820,10 +840,10 @@ export const SKILLS_MAP: Technology[] = [
     id: "aspnetcore",
     name: "ASP.NET Core",
     detect: {
-      configFiles: ["appsettings.json", "appsettings.Development.json"],
       configFileContent: {
         scanDotNetLayout: true,
-        patterns: ["Microsoft.NET.Sdk.Web"],
+        patterns: [/<Project\b[^>]*\bSdk\s*=\s*["']Microsoft\.NET\.Sdk\.Web["']/, /<FrameworkReference\b[^>]*\bInclude\s*=\s*["']Microsoft\.AspNetCore\.App["']/],
+        stripComments: "xml",
       },
     },
     skills: ["github/awesome-copilot/containerize-aspnetcore", "openai/skills/aspnet-core"],
@@ -843,10 +863,12 @@ export const SKILLS_MAP: Technology[] = [
     id: "aspnet-minimal-api",
     name: "ASP.NET Minimal API",
     detect: {
-      configFiles: ["appsettings.json"],
       configFileContent: {
-        scanDotNetLayout: true,
-        patterns: ["Microsoft.AspNetCore.OpenApi", "Swashbuckle.AspNetCore"],
+        sourceExtensions: [".cs"],
+        patterns: [/\bWebApplication\s*\.\s*Create(?:Builder|SlimBuilder|EmptyBuilder)?\s*\(/, /\.\s*Map(?:Get|Post|Put|Patch|Delete|Methods)\s*\(/],
+        allPatterns: true,
+        stripComments: "code",
+        maskStrings: true,
       },
     },
     skills: ["github/awesome-copilot/aspnet-minimal-api-openapi"],
@@ -893,7 +915,7 @@ export const SKILLS_MAP: Technology[] = [
   },
   {
     id: "postgres-ruby",
-    name: "PostgreSQL",
+    name: "PostgreSQL (Ruby)",
     detect: {
       gems: ["pg"],
     },
@@ -991,10 +1013,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "fastapi",
     name: "FastAPI",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg", "Pipfile"],
-        patterns: ["fastapi", "FastAPI"],
-      },
+      pythonPackages: ["fastapi"],
     },
     skills: [
       "fastapi/fastapi/fastapi",
@@ -1006,10 +1025,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "fastmcp",
     name: "FastMCP",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        patterns: ["fastmcp", "FastMCP"],
-      },
+      pythonPackages: ["fastmcp"],
     },
     skills: ["sharanharsoor/skills/fastmcp"],
   },
@@ -1017,11 +1033,8 @@ export const SKILLS_MAP: Technology[] = [
     id: "django",
     name: "Django",
     detect: {
+      pythonPackages: ["django"],
       configFiles: ["manage.py"],
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg", "Pipfile"],
-        patterns: ["django", "Django"],
-      },
     },
     skills: [
       "vintasoftware/django-ai-plugins/django-expert",
@@ -1033,10 +1046,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "flask",
     name: "Flask",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg", "Pipfile"],
-        patterns: ["flask", "Flask"],
-      },
+      pythonPackages: ["flask"],
     },
     skills: ["aj-geddes/useful-ai-prompts/flask-api-development"],
   },
@@ -1044,10 +1054,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "pydantic",
     name: "Pydantic",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        patterns: ["pydantic", "Pydantic"],
-      },
+      pythonPackages: ["pydantic"],
     },
     skills: ["bobmatnyc/claude-mpm-skills/pydantic"],
   },
@@ -1055,10 +1062,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "sqlalchemy",
     name: "SQLAlchemy",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        patterns: ["sqlalchemy", "SQLAlchemy"],
-      },
+      pythonPackages: ["sqlalchemy"],
     },
     skills: [
       "bobmatnyc/claude-mpm-skills/sqlalchemy",
@@ -1069,10 +1073,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "pytest",
     name: "Pytest",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        patterns: ["pytest", "Pytest"],
-      },
+      pythonPackages: ["pytest"],
     },
     skills: ["wshobson/agents/python-testing-patterns"],
   },
@@ -1080,10 +1081,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "pandas",
     name: "Pandas",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        patterns: ["pandas", "Pandas"],
-      },
+      pythonPackages: ["pandas"],
     },
     skills: [
       "jeffallan/claude-skills/pandas-pro",
@@ -1094,10 +1092,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "numpy",
     name: "NumPy",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        patterns: ["numpy", "NumPy", "numpy"],
-      },
+      pythonPackages: ["numpy"],
     },
     skills: [
       "pluginagentmarketplace/custom-plugin-python/machine-learning",
@@ -1108,10 +1103,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "scikit-learn",
     name: "Scikit-Learn",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        patterns: ["scikit-learn", "scikit_learn", "sklearn"],
-      },
+      pythonPackages: ["scikit-learn"],
     },
     skills: [
       "davila7/claude-code-templates/scikit-learn",
@@ -1122,10 +1114,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "celery",
     name: "Celery",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        patterns: ["celery", "Celery"],
-      },
+      pythonPackages: ["celery"],
     },
     skills: ["wshobson/agents/python-background-jobs"],
   },
@@ -1133,10 +1122,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "requests",
     name: "Requests",
     detect: {
-      configFileContent: {
-        files: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        patterns: ["requests", "Requests"],
-      },
+      pythonPackages: ["requests"],
     },
     skills: ["affaan-m/everything-claude-code/python-patterns"],
   },
@@ -1382,7 +1368,7 @@ export const SKILLS_MAP: Technology[] = [
   {
     id: "swift",
     name: "Swift",
-    detect: { configFiles: ["Package.swift"] },
+    detect: { configFiles: ["Package.swift"], fileExtensions: [".swift"] },
     skills: ["avdlee/swift-concurrency-agent-skill/swift-concurrency"],
   },
   {
@@ -1394,7 +1380,7 @@ export const SKILLS_MAP: Technology[] = [
   {
     id: "cpp",
     name: "C++",
-    detect: { configFiles: ["CMakeLists.txt"] },
+    detect: { fileExtensions: [".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".hh"] },
     skills: [],
   },
   // Developer tooling — task runners and local environments
@@ -1783,7 +1769,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "preact",
     name: "Preact",
     detect: {
-      packages: ["preact"],
+      packages: ["preact", "preact-render-to-string"],
     },
     skills: [],
   },
@@ -1791,7 +1777,7 @@ export const SKILLS_MAP: Technology[] = [
     id: "lit",
     name: "Lit",
     detect: {
-      packages: ["lit", "lit-element"],
+      packages: ["lit", "lit-element", "@lit/react"],
     },
     skills: [],
   },
@@ -1948,7 +1934,7 @@ export const SKILLS_MAP: Technology[] = [
   },
   {
     id: "postgres",
-    name: "PostgreSQL clients",
+    name: "PostgreSQL (JS/Python)",
     detect: {
       packages: ["pg", "postgres"],
       pythonPackages: ["psycopg", "psycopg2", "psycopg2-binary", "asyncpg", "pg8000"],
@@ -2108,6 +2094,242 @@ export const SKILLS_MAP: Technology[] = [
     detect: {
       packages: ["msw"],
     },
+    skills: [],
+  },
+  // UI, tooling, platform, and manifest-based ecosystem coverage.
+  {
+    id: "ink",
+    name: "Ink",
+    detect: { packages: ["ink", "ink-select-input", "@inkjs/ui"] },
+    skills: [],
+  },
+  {
+    id: "radix-ui",
+    name: "Radix UI",
+    detect: { packages: ["radix-ui"], packagePatterns: [/^@radix-ui\/react-/] },
+    skills: [],
+  },
+  {
+    id: "recharts",
+    name: "Recharts",
+    detect: { packages: ["recharts"] },
+    skills: [],
+  },
+  {
+    id: "d3",
+    name: "D3",
+    detect: { packages: ["d3"], packagePatterns: [/^d3-/] },
+    skills: [],
+  },
+  {
+    id: "codemirror",
+    name: "CodeMirror",
+    detect: { packages: ["codemirror"], packagePatterns: [/^@codemirror\//] },
+    skills: [],
+  },
+  {
+    id: "monaco-editor",
+    name: "Monaco Editor",
+    detect: { packages: ["monaco-editor", "@monaco-editor/react"] },
+    skills: [],
+  },
+  {
+    id: "remark",
+    name: "remark / rehype / unified",
+    detect: { packages: ["remark", "rehype", "unified"], packagePatterns: [/^(?:remark|rehype|mdast-util|hast-util|unist-util)-/] },
+    skills: [],
+  },
+  {
+    id: "workos",
+    name: "WorkOS",
+    detect: { packages: ["@workos-inc/node", "@workos-inc/authkit-react", "@workos-inc/authkit-nextjs", "@workos-inc/widgets"], pythonPackages: ["workos"] },
+    skills: [],
+  },
+  {
+    id: "sqlite",
+    name: "SQLite",
+    detect: { packages: ["better-sqlite3", "sqlite3", "sqlite", "@libsql/client"], pythonPackages: ["aiosqlite", "libsql-experimental"] },
+    skills: [],
+  },
+  {
+    id: "google-genai",
+    name: "Google Gen AI",
+    detect: { packages: ["@google/genai"], pythonPackages: ["google-genai"] },
+    skills: [],
+  },
+  {
+    id: "firecrawl",
+    name: "Firecrawl",
+    detect: { packages: ["@mendable/firecrawl-js"], pythonPackages: ["firecrawl-py"] },
+    skills: [],
+  },
+  {
+    id: "ava",
+    name: "AVA",
+    detect: { packages: ["ava"], configFiles: ["ava.config.js", "ava.config.cjs", "ava.config.mjs"] },
+    skills: [],
+  },
+  {
+    id: "xo",
+    name: "XO",
+    detect: { packages: ["xo"], configFiles: ["xo.config.js", "xo.config.mjs", "xo.config.cjs", "xo.config.ts"] },
+    skills: [],
+  },
+  {
+    id: "rollup",
+    name: "Rollup",
+    detect: { packages: ["rollup"], packagePatterns: [/^@rollup\/plugin-/, /^rollup-plugin-/], configFiles: ["rollup.config.js", "rollup.config.mjs", "rollup.config.cjs", "rollup.config.ts"] },
+    skills: [],
+  },
+  {
+    id: "babel",
+    name: "Babel",
+    detect: { packages: ["@babel/core", "babel-jest"], packagePatterns: [/^@babel\/(?:plugin|preset)-/, /^babel-(?:plugin|preset)-/], configFiles: [".babelrc", ".babelrc.json", ".babelrc.js", ".babelrc.cjs", "babel.config.js", "babel.config.cjs", "babel.config.mjs", "babel.config.json"] },
+    skills: [],
+  },
+  {
+    id: "nodemon",
+    name: "nodemon",
+    detect: { packages: ["nodemon"], configFiles: ["nodemon.json", ".nodemon.json"] },
+    skills: [],
+  },
+  {
+    id: "knip",
+    name: "Knip",
+    detect: { packages: ["knip"], configFiles: ["knip.json", "knip.jsonc", "knip.ts", "knip.js", "knip.config.ts", "knip.config.js", ".knip.json", ".knip.jsonc"] },
+    skills: [],
+  },
+  {
+    id: "typedoc",
+    name: "TypeDoc",
+    detect: { packages: ["typedoc"], configFiles: ["typedoc.json", "typedoc.jsonc", "typedoc.config.js", "typedoc.config.cjs", "typedoc.config.mjs"] },
+    skills: [],
+  },
+  {
+    id: "nix",
+    name: "Nix",
+    detect: { fileExtensions: [".nix"] },
+    skills: [],
+  },
+  {
+    id: "qml",
+    name: "QML",
+    detect: { configFiles: ["qmldir"], fileExtensions: [".qml"] },
+    skills: [],
+  },
+  {
+    id: "vala",
+    name: "Vala",
+    detect: { fileExtensions: [".vala", ".vapi"] },
+    skills: [],
+  },
+  {
+    id: "meson",
+    name: "Meson",
+    detect: { configFiles: ["meson.build", "meson_options.txt", "meson.options"] },
+    skills: [],
+  },
+  {
+    id: "supercollider",
+    name: "SuperCollider",
+    detect: { fileExtensions: [".scd"] },
+    skills: [],
+  },
+  {
+    id: "lua",
+    name: "Lua",
+    detect: { fileExtensions: [".lua"] },
+    skills: [],
+  },
+  {
+    id: "haskell",
+    name: "Haskell",
+    detect: { fileExtensions: [".hs", ".lhs", ".cabal"], configFiles: ["cabal.project", "stack.yaml"] },
+    skills: [],
+  },
+  {
+    id: "powershell",
+    name: "PowerShell",
+    detect: { fileExtensions: [".ps1", ".psm1", ".psd1"] },
+    skills: [],
+  },
+  {
+    id: "fish",
+    name: "Fish",
+    detect: { configFiles: [".config/fish/config.fish"], fileExtensions: [".fish"] },
+    skills: [],
+  },
+  {
+    id: "zsh",
+    name: "Zsh",
+    detect: { configFiles: [".zshrc", ".zshenv"], fileExtensions: [".zsh"] },
+    skills: [],
+  },
+  {
+    id: "batch",
+    name: "Windows batch",
+    detect: { fileExtensions: [".bat", ".cmd"] },
+    skills: [],
+  },
+  {
+    id: "jinja",
+    name: "Jinja",
+    detect: { pythonPackages: ["jinja2"], fileExtensions: [".jinja", ".jinja2", ".j2"] },
+    skills: [],
+  },
+  {
+    id: "obsidian",
+    name: "Obsidian",
+    detect: { packages: ["obsidian", "obsidian-plugin-cli"] },
+    skills: [],
+  },
+  {
+    id: "userscripts",
+    name: "Userscripts",
+    detect: { packages: ["vite-plugin-monkey"], fileExtensions: [".user.js"] },
+    skills: [],
+  },
+  {
+    id: "home-assistant",
+    name: "Home Assistant",
+    detect: {
+      pythonPackages: ["homeassistant"],
+      configFileContent: {
+        files: ["config.yaml", "config.yml", "config.json"],
+        patterns: [/^\s*["']?(?:hassio_api|homeassistant_api)["']?\s*:\s*true\b/m],
+        stripComments: "hash",
+      },
+    },
+    skills: [],
+  },
+  {
+    id: "cmake",
+    name: "CMake",
+    detect: { configFiles: ["CMakeLists.txt", "CMakePresets.json"] },
+    skills: [],
+  },
+  {
+    id: "phoenix",
+    name: "Phoenix",
+    detect: { elixirPackages: ["phoenix"] },
+    skills: [],
+  },
+  {
+    id: "symfony",
+    name: "Symfony",
+    detect: { composerPackages: ["symfony/framework-bundle", "symfony/symfony"] },
+    skills: [],
+  },
+  {
+    id: "gin",
+    name: "Gin",
+    detect: { goModules: ["github.com/gin-gonic/gin"] },
+    skills: [],
+  },
+  {
+    id: "axum",
+    name: "Axum",
+    detect: { rustCrates: ["axum"] },
     skills: [],
   },
 ];

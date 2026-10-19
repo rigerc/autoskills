@@ -1,6 +1,9 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { SCAN_SKIP_DIRS, scanProjectFiles, readDetectionFile, stripComments } from "./detection-files.ts";
+import { normalizePythonName, pythonPackageNames, composerPackageNames, goModuleNames, cargoPackageNames, mixPackageNames } from "./detection-manifests.ts";
+export { readPythonPackageNames } from "./detection-manifests.ts";
 
 import type { Technology, ComboSkill, ConfigFileContentBlock } from "./skills-map.ts";
 
@@ -27,27 +30,6 @@ import {
 // ── Internal Constants ───────────────────────────────────────
 
 const AGENT_FOLDER_ENTRIES = Object.entries(AGENT_FOLDER_MAP);
-
-const SCAN_SKIP_DIRS = new Set([
-  "node_modules",
-  ".git",
-  "vendor",
-  ".next",
-  "dist",
-  "build",
-  ".output",
-  ".nuxt",
-  ".svelte-kit",
-  "__pycache__",
-  ".cache",
-  "coverage",
-  ".turbo",
-  ".terraform",
-  "var",
-  "bin",
-  "obj",
-  ".vs",
-]);
 
 const GRADLE_SCAN_ROOT_FILES = [
   "build.gradle.kts",
@@ -81,12 +63,7 @@ export function parseSettingsGradleModules(content: string): string[] {
   return modules;
 }
 
-const _gradleCache = new Map<string, string[]>();
-
 function gradleLayoutCandidatePaths(projectDir: string): string[] {
-  const cached = _gradleCache.get(projectDir);
-  if (cached) return cached;
-
   const candidates: string[] = [];
   const seen = new Set<string>();
 
@@ -122,6 +99,7 @@ function gradleLayoutCandidatePaths(projectDir: string): string[] {
       continue;
     }
     for (const modulePath of parseSettingsGradleModules(content)) {
+      if (modulePath.split(/[\\/]/).includes("..")) continue;
       for (const g of ["build.gradle.kts", "build.gradle"]) {
         add(join(projectDir, modulePath, g));
       }
@@ -129,106 +107,26 @@ function gradleLayoutCandidatePaths(projectDir: string): string[] {
     break;
   }
 
-  _gradleCache.set(projectDir, candidates);
   return candidates;
 }
 
 // ── .NET Scanning ────────────────────────────────────────────
 
-const _dotNetCache = new Map<string, string[]>();
-
-function dotNetLayoutCandidatePaths(projectDir: string): string[] {
-  const cached = _dotNetCache.get(projectDir);
-  if (cached) return cached;
-
-  const candidates: string[] = [];
-  const seen = new Set<string>();
-
-  function add(filePath: string): void {
-    if (!seen.has(filePath)) {
-      candidates.push(filePath);
-      seen.add(filePath);
-    }
-  }
-
-  for (const f of DOTNET_SCAN_ROOT_FILES) {
-    add(join(projectDir, f));
-  }
-
-  function scan(dir: string, depth: number): void {
-    if (depth > 2) return;
-    let entries: import("node:fs").Dirent[];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const e of entries) {
-      if (e.isFile()) {
-        const lower = e.name.toLowerCase();
-        if (lower.endsWith(".sln") || lower.endsWith(".csproj") || lower.endsWith(".fsproj")) {
-          add(join(dir, e.name));
-        }
-      } else if (e.isDirectory() && !e.name.startsWith(".") && !SCAN_SKIP_DIRS.has(e.name)) {
-        scan(join(dir, e.name), depth + 1);
-      }
-    }
-  }
-
-  scan(projectDir, 0);
-
-  _dotNetCache.set(projectDir, candidates);
-  return candidates;
-}
-
 function resolveConfigFileContentPaths(
   projectDir: string,
   config: ConfigFileContentBlock,
+  projectFiles: () => string[],
 ): string[] {
-  if (config.scanGradleLayout) {
-    return gradleLayoutCandidatePaths(projectDir);
-  }
+  const paths = (config.files || []).map((f) => join(projectDir, f));
+  if (config.scanGradleLayout) paths.push(...gradleLayoutCandidatePaths(projectDir));
   if (config.scanDotNetLayout) {
-    return dotNetLayoutCandidatePaths(projectDir);
+    paths.push(...DOTNET_SCAN_ROOT_FILES.map((f) => join(projectDir, f)));
+    paths.push(...projectFiles().filter((path) => /\.(?:csproj|fsproj|sln)$/i.test(path)));
   }
-  return (config.files || []).map((f) => join(projectDir, f));
-}
-
-// ── Project File Scanning ────────────────────────────────────
-
-function hasFileWithExtension(
-  projectDir: string,
-  extensions: string[],
-  maxDepth: number = 4,
-): boolean {
-  const normalized = new Set(
-    extensions.map((ext) => (ext.startsWith(".") ? ext : `.${ext}`).toLowerCase()),
-  );
-  const normalizedExtensions = [...normalized];
-
-  function scan(dir: string, depth: number): boolean {
-    let entries: import("node:fs").Dirent[];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return false;
-    }
-
-    for (const entry of entries) {
-      if (entry.isFile()) {
-        const lowerName = entry.name.toLowerCase();
-        if (normalizedExtensions.some((ext) => lowerName.endsWith(ext))) return true;
-      } else if (entry.isDirectory() && depth < maxDepth) {
-        if (SCAN_SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
-        if (scan(join(dir, entry.name), depth + 1)) return true;
-      }
-    }
-
-    return false;
+  if (config.sourceExtensions) {
+    paths.push(...projectFiles().filter((path) => config.sourceExtensions!.some((ext) => path.toLowerCase().endsWith(ext))));
   }
-
-  return scan(projectDir, 0);
+  return [...new Set(paths)];
 }
 
 // ── Frontend File Scanning ───────────────────────────────────
@@ -378,84 +276,6 @@ export function readGemfile(dir: string): string[] {
   }
 }
 
-// Only consider declared Python dependencies, not arbitrary prose in pyproject.toml.
-// Normalize PEP 503 separators so sentry_sdk and sentry-sdk refer to the same package.
-export function readPythonPackageNames(dir: string): string[] {
-  const packages = new Set<string>();
-
-  function addSpec(spec: string): void {
-    const name = spec.trim().match(/^([a-zA-Z0-9][a-zA-Z0-9._-]*)/);
-    if (name) packages.add(name[1].toLowerCase().replace(/[._]+/g, "-"));
-  }
-
-  function addQuotedSpecs(line: string): void {
-    for (const match of line.matchAll(/["']([^"']+)["']/g)) addSpec(match[1]);
-  }
-
-  try {
-    const content = readFileSync(join(dir, "requirements.txt"), "utf-8");
-    for (const raw of content.split(/\r?\n/)) {
-      const line = raw.trim();
-      if (line && !line.startsWith("#") && !line.startsWith("-")) {
-        addSpec(line);
-      }
-    }
-  } catch {
-    // Missing dependency manifest is normal.
-  }
-
-  for (const file of ["pyproject.toml", "Pipfile"]) {
-    let content: string;
-    try {
-      content = readFileSync(join(dir, file), "utf-8");
-    } catch {
-      continue;
-    }
-
-    let section = "";
-    let inArray = false;
-    for (const raw of content.split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#")) continue;
-
-      const header = line.match(/^\[([^\]]+)\]$/);
-      if (header) {
-        section = header[1];
-        inArray = false;
-        continue;
-      }
-
-      if (
-        section === "project" ||
-        section === "project.optional-dependencies" ||
-        section === "dependency-groups" ||
-        section === "tool.pdm.dev-dependencies"
-      ) {
-        if (
-          (section === "project" && /^dependencies\s*=\s*\[/.test(line)) ||
-          (section !== "project" && /^[\w.-]+\s*=\s*\[/.test(line))
-        ) {
-          inArray = true;
-        }
-        if (inArray) {
-          addQuotedSpecs(line.split(/\s+#/)[0]);
-          if (/\]\s*(?:#.*)?$/.test(line)) inArray = false;
-        }
-      } else if (
-        section === "packages" ||
-        section === "dev-packages" ||
-        section === "tool.poetry.dependencies" ||
-        /^tool\.poetry\.group\.[^.]+\.dependencies$/.test(section)
-      ) {
-        const declaration = line.match(/^["']?([a-zA-Z0-9][a-zA-Z0-9._-]*)["']?\s*=/);
-        if (declaration) addSpec(declaration[1]);
-      }
-    }
-  }
-
-  return [...packages];
-}
-
 export function readPackageJson(dir: string): Record<string, unknown> | null {
   try {
     return JSON.parse(readFileSync(join(dir, "package.json"), "utf-8"));
@@ -492,7 +312,10 @@ function detectTechnologiesInDir(
   const allDepsArray = getAllPackageNames(pkg);
   const allDepsSet = new Set(allDepsArray);
   let gemNames: string[] | undefined;
-  let pythonNames: Set<string> | undefined;
+  const manifestNames = new Map<string, Set<string>>();
+  const contentPaths = new Map<string, string[]>();
+  let files: string[] | undefined;
+  const projectFiles = () => files ??= scanProjectFiles(dir);
   const detected: Technology[] = [];
   const fileContentCache = new Map<string, string | null>();
   const existsCache = new Map<string, boolean>();
@@ -500,10 +323,7 @@ function detectTechnologiesInDir(
 
   function cachedRead(filePath: string): string | null {
     if (fileContentCache.has(filePath)) return fileContentCache.get(filePath)!;
-    let content: string | null = null;
-    try {
-      content = readFileSync(filePath, "utf-8");
-    } catch {}
+    const content = readDetectionFile(filePath);
     fileContentCache.set(filePath, content);
     if (content !== null) existsCache.set(filePath, true);
     return content;
@@ -523,11 +343,20 @@ function detectTechnologiesInDir(
       found = tech.detect.packages.some((p) => allDepsSet.has(p));
     }
 
-    if (!found && tech.detect.pythonPackages) {
-      if (!pythonNames) pythonNames = new Set(readPythonPackageNames(dir));
-      found = tech.detect.pythonPackages.some((name) =>
-        pythonNames!.has(name.toLowerCase().replace(/[._]+/g, "-")),
-      );
+    const readers = {
+      pythonPackages: pythonPackageNames,
+      composerPackages: composerPackageNames,
+      goModules: goModuleNames,
+      rustCrates: cargoPackageNames,
+      elixirPackages: mixPackageNames,
+    };
+    for (const key of Object.keys(readers) as (keyof typeof readers)[]) {
+      const wanted = tech.detect[key];
+      if (found || !wanted) continue;
+      if (!manifestNames.has(key)) {
+        manifestNames.set(key, new Set(readers[key]((file) => cachedRead(join(dir, file)))));
+      }
+      found = wanted.some((name) => manifestNames.get(key)!.has(key === "pythonPackages" ? normalizePythonName(name) : name));
     }
 
     if (!found && tech.detect.packagePatterns) {
@@ -543,7 +372,7 @@ function detectTechnologiesInDir(
     if (!found && tech.detect.fileExtensions) {
       const key = tech.detect.fileExtensions.join("\0");
       if (!fileExtensionCache.has(key)) {
-        fileExtensionCache.set(key, hasFileWithExtension(dir, tech.detect.fileExtensions));
+        fileExtensionCache.set(key, projectFiles().some((file) => tech.detect.fileExtensions!.some((ext) => file.toLowerCase().endsWith(ext))));
       }
       found = fileExtensionCache.get(key)!;
     }
@@ -558,12 +387,15 @@ function detectTechnologiesInDir(
         ? tech.detect.configFileContent
         : [tech.detect.configFileContent];
       for (const cfg of configs) {
-        const paths = resolveConfigFileContentPaths(dir, cfg);
+        const key = JSON.stringify([cfg.files, cfg.scanGradleLayout, cfg.scanDotNetLayout, cfg.sourceExtensions]);
+        if (!contentPaths.has(key)) contentPaths.set(key, resolveConfigFileContentPaths(dir, cfg, projectFiles));
         const { patterns } = cfg;
-        for (const filePath of paths) {
-          const content = cachedRead(filePath);
+        for (const filePath of contentPaths.get(key)!) {
+          let content = cachedRead(filePath);
           if (content === null) continue;
-          if (patterns.some((p) => content.includes(p))) {
+          if (cfg.stripComments) content = stripComments(content, cfg.stripComments, cfg.maskStrings);
+          const matches = (p: string | RegExp) => typeof p === "string" ? content!.includes(p) : p.test(content!);
+          if (cfg.allPatterns ? patterns.every(matches) : patterns.some(matches)) {
             found = true;
             break;
           }

@@ -54,7 +54,7 @@ describe("expanded technology detection", () => {
     ["biome", "biome.jsonc"],
     ["swift", "Package.swift"],
     ["elixir", "mix.exs"],
-    ["cpp", "CMakeLists.txt"],
+    ["cmake", "CMakeLists.txt"],
   ];
 
   for (const [id, file] of fromFile) {
